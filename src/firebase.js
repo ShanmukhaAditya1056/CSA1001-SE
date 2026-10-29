@@ -20,12 +20,12 @@ const FIREBASE_CONFIG_KEY = 'devtrack_firebase_config';
 // Default Firebase configuration (Loaded dynamically from environment variables)
 export const DEFAULT_CONFIG = {
   apiKey: import.meta.env?.VITE_FIREBASE_API_KEY || "",
-  authDomain: import.meta.env?.VITE_FIREBASE_AUTH_DOMAIN || "devtrack-b125c.firebaseapp.com",
-  projectId: import.meta.env?.VITE_FIREBASE_PROJECT_ID || "devtrack-b125c",
-  storageBucket: import.meta.env?.VITE_FIREBASE_STORAGE_BUCKET || "devtrack-b125c.firebasestorage.app",
-  messagingSenderId: import.meta.env?.VITE_FIREBASE_MESSAGING_SENDER_ID || "176906416273",
-  appId: import.meta.env?.VITE_FIREBASE_APP_ID || "1:176906416273:web:801cf5a06737a8c2eb8f30",
-  measurementId: import.meta.env?.VITE_FIREBASE_MEASUREMENT_ID || "G-1T9NKXXPE9"
+  authDomain: import.meta.env?.VITE_FIREBASE_AUTH_DOMAIN || "",
+  projectId: import.meta.env?.VITE_FIREBASE_PROJECT_ID || "",
+  storageBucket: import.meta.env?.VITE_FIREBASE_STORAGE_BUCKET || "",
+  messagingSenderId: import.meta.env?.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
+  appId: import.meta.env?.VITE_FIREBASE_APP_ID || "",
+  measurementId: import.meta.env?.VITE_FIREBASE_MEASUREMENT_ID || ""
 };
 
 export function getSavedFirebaseConfig() {

@@ -68,14 +68,14 @@ DevTrack is architected for seamless cloud deployment:
    - **Root Directory:** `./`
    - **Build Command:** `npm run build`
    - **Output Directory:** `dist`
-5. Add Environment Variables in the Vercel Project Settings:
-   - `VITE_FIREBASE_API_KEY`: *(Your Firebase Web API Key)*
-   - `VITE_FIREBASE_AUTH_DOMAIN`: `devtrack-b125c.firebaseapp.com`
-   - `VITE_FIREBASE_PROJECT_ID`: `devtrack-b125c`
-   - `VITE_FIREBASE_STORAGE_BUCKET`: `devtrack-b125c.firebasestorage.app`
-   - `VITE_FIREBASE_MESSAGING_SENDER_ID`: `176906416273`
-   - `VITE_FIREBASE_APP_ID`: `1:176906416273:web:801cf5a06737a8c2eb8f30`
-   - `VITE_FIREBASE_MEASUREMENT_ID`: `G-1T9NKXXPE9`
+5. Add Environment Variables in the Vercel Project Settings (Copy the values from your local `.env`):
+   - `VITE_FIREBASE_API_KEY`: *(From your .env)*
+   - `VITE_FIREBASE_AUTH_DOMAIN`: *(From your .env)*
+   - `VITE_FIREBASE_PROJECT_ID`: *(From your .env)*
+   - `VITE_FIREBASE_STORAGE_BUCKET`: *(From your .env)*
+   - `VITE_FIREBASE_MESSAGING_SENDER_ID`: *(From your .env)*
+   - `VITE_FIREBASE_APP_ID`: *(From your .env)*
+   - `VITE_FIREBASE_MEASUREMENT_ID`: *(From your .env)*
 6. Click **Deploy**. Vercel will build the frontend and provide a live URL (`https://<project-name>.vercel.app`).
 
 ### Deploying the Backend to Render
