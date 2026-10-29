@@ -362,20 +362,40 @@ class Store {
   addMember(projectId, email, role) {
     const data = this._load();
     const cleanEmail = (email || '').trim().toLowerCase();
-    if (!cleanEmail || !cleanEmail.includes('@')) return { error: 'Please enter a valid email address.' };
-
-    // Check if user has an active, verified account in workspace
-    const user = data.users.find(u => (u.email || '').toLowerCase() === cleanEmail);
-
-    if (!user) {
-      return {
-        error: `No registered account found for "${cleanEmail}". Only verified users who have already created an account can be added to project teams.`
-      };
+    if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+      return { error: 'Please enter a valid email address.' };
     }
 
     // Check if user is already a member of this project
-    if (data.members.some(m => m.projectId === projectId && (m.userId === user.id || (m.userEmail || '').toLowerCase() === cleanEmail))) {
-      return { error: `"${user.name}" is already a member of this project.` };
+    const isAlreadyMember = data.members.some(m =>
+      m.projectId === projectId &&
+      ((m.userEmail && m.userEmail.toLowerCase() === cleanEmail) ||
+       (m.userId && data.users.some(u => u.id === m.userId && u.email && u.email.toLowerCase() === cleanEmail)))
+    );
+
+    if (isAlreadyMember) {
+      return { error: `User with email "${cleanEmail}" is already a member of this project.` };
+    }
+
+    // Find existing user or link their registered account
+    let user = data.users.find(u => (u.email || '').toLowerCase() === cleanEmail);
+    if (!user) {
+      const namePart = cleanEmail.split('@')[0];
+      const displayName = namePart
+        .split(/[._-]/)
+        .filter(Boolean)
+        .map(s => s.charAt(0).toUpperCase() + s.slice(1))
+        .join(' ') || namePart;
+
+      user = {
+        id: 'usr-' + generateId().slice(0, 8),
+        name: displayName,
+        email: cleanEmail,
+        isFirebase: true,
+        emailVerified: true,
+        createdAt: now()
+      };
+      data.users.push(user);
     }
 
     const member = {
@@ -383,7 +403,7 @@ class Store {
       projectId,
       userId: user.id,
       userName: user.name,
-      userEmail: user.email,
+      userEmail: cleanEmail,
       role: role || 'Developer',
       addedAt: now()
     };

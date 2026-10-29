@@ -175,12 +175,12 @@ function openAddMemberModal(projectId, onSaved) {
 
   showModal(`
     <form id="add-member-form" class="space-y-4">
-      <!-- Verified Policy Banner -->
+      <!-- Team Invitation Banner -->
       <div class="p-3 rounded-lg bg-surface-base border border-secondary/30 flex items-start gap-2.5">
-        <span class="material-symbols-outlined text-secondary text-[20px] shrink-0 mt-0.5">verified_user</span>
+        <span class="material-symbols-outlined text-secondary text-[20px] shrink-0 mt-0.5">group_add</span>
         <div class="text-[12px]">
-          <span class="font-semibold text-text-primary block">Verified Account Requirement</span>
-          <span class="text-text-muted">Only users who have already created an active DevTrack account can be added to teams. Unregistered emails cannot be added.</span>
+          <span class="font-semibold text-text-primary block">Invite Team Member</span>
+          <span class="text-text-muted">Enter the email of a colleague who has created an account (Google or Firebase). They will immediately be granted project team access with their assigned role.</span>
         </div>
       </div>
 
@@ -188,7 +188,7 @@ function openAddMemberModal(projectId, onSaved) {
         <div>
           <label class="block text-label-md font-medium text-text-secondary mb-1">Select Registered User</label>
           <select id="mem-user-select" class="w-full bg-surface-base text-text-primary text-body-md px-3 py-2 rounded-lg border border-border-subtle focus:border-primary outline-none">
-            <option value="">-- Choose from verified accounts or enter email below --</option>
+            <option value="">-- Choose from known accounts or enter email below --</option>
             ${nonMembers.map(u => `
               <option value="${u.email}">${u.name} (${u.email})</option>
             `).join('')}
@@ -196,7 +196,7 @@ function openAddMemberModal(projectId, onSaved) {
         </div>
 
         <div>
-          <span class="text-[11px] font-jetbrains text-text-muted uppercase tracking-wider block mb-1.5">Registered Accounts (${nonMembers.length} available)</span>
+          <span class="text-[11px] font-jetbrains text-text-muted uppercase tracking-wider block mb-1.5">Known Workspace Accounts (${nonMembers.length} available)</span>
           <div class="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-1 bg-surface-base/50 rounded-lg border border-border-subtle">
             ${nonMembers.map(u => `
               <button type="button" class="quick-fill-email group flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-surface-canvas hover:bg-surface-elevated border border-border-subtle hover:border-secondary transition-all text-left" data-email="${u.email}">
@@ -211,26 +211,16 @@ function openAddMemberModal(projectId, onSaved) {
             `).join('')}
           </div>
         </div>
-      ` : `
-        <div class="p-3.5 rounded-xl bg-surface-panel/40 border border-border-subtle flex items-start gap-3">
-          <div class="w-8 h-8 rounded-lg bg-secondary/15 text-secondary flex items-center justify-center shrink-0 mt-0.5">
-            <span class="material-symbols-outlined text-[20px]">person_check</span>
-          </div>
-          <div class="text-body-sm">
-            <div class="font-semibold text-text-primary mb-0.5">All registered users are already in this project</div>
-            <div class="text-text-muted text-[12px]">Only verified users who possess an active DevTrack account can be added to teams. New colleagues must register or sign in first.</div>
-          </div>
-        </div>
-      `}
+      ` : ''}
 
       <div>
-        <label class="block text-label-md font-medium text-text-secondary mb-1">Registered User Email *</label>
+        <label class="block text-label-md font-medium text-text-secondary mb-1">Colleague Account Email *</label>
         <input type="email" id="mem-email" list="verified-users-datalist" required placeholder="colleague@company.com"
           class="w-full bg-surface-base text-text-primary text-body-md px-3 py-2 rounded-lg border border-border-subtle focus:border-primary outline-none transition-all" />
         <datalist id="verified-users-datalist">
           ${nonMembers.map(u => `<option value="${u.email}">${u.name} (Verified)</option>`).join('')}
         </datalist>
-        <p class="text-[11px] text-text-muted mt-1 font-jetbrains">Must match an existing registered account email in this workspace</p>
+        <p class="text-[11px] text-text-muted mt-1 font-jetbrains">Colleague's registered Google or Firebase account email address</p>
       </div>
 
       <div>
