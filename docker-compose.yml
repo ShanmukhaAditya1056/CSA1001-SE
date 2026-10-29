@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: devtrack-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: devtrack
+      POSTGRES_PASSWORD: devtrack_local_password
+      POSTGRES_DB: devtrack
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devtrack -d devtrack"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: devtrack-app
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+      - "4000:4000"
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      CLIENT_URL: http://localhost:5173
+      DATABASE_URL: postgresql://devtrack:devtrack_local_password@postgres:5432/devtrack?schema=public
+      JWT_SECRET: devtrack_secure_container_secret_production_key_492817
+      COOKIE_NAME: devtrack_session
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+    driver: local

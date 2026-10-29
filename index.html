@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+  <title>DevTrack — Software Engineering Lifecycle Platform</title>
+  <meta name="description" content="DevTrack: Full-stack Software Engineering Lifecycle Management Platform. Manage requirements, tasks, sprints, tests, bugs, and releases in one place." />
+  <link href="https://fonts.googleapis.com" rel="preconnect" />
+  <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect" />
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "on-background": "#dae2fd",
+            "primary-fixed": "#e1e0ff",
+            "primary": "#c0c1ff",
+            "surface-panel": "#1E293B",
+            "tertiary-fixed-dim": "#ddb7ff",
+            "status-release": "#A855F7",
+            "on-tertiary": "#490080",
+            "inverse-primary": "#494bd6",
+            "surface-base": "#0B0F19",
+            "border-strong": "rgba(148, 163, 184, 0.28)",
+            "error": "#ffb4ab",
+            "tertiary": "#ddb7ff",
+            "on-surface-variant": "#c7c4d7",
+            "on-secondary": "#00354a",
+            "surface-container-lowest": "#060e20",
+            "surface-tint": "#c0c1ff",
+            "surface-dim": "#0b1326",
+            "secondary-container": "#00a6e0",
+            "surface-bright": "#31394d",
+            "secondary": "#7bd0ff",
+            "status-defect": "#F43F5E",
+            "on-secondary-fixed-variant": "#004c69",
+            "surface-elevated": "#334155",
+            "surface-container": "#171f33",
+            "primary-container": "#8083ff",
+            "outline-variant": "#464554",
+            "tertiary-container": "#b76dff",
+            "on-surface": "#dae2fd",
+            "secondary-fixed-dim": "#7bd0ff",
+            "secondary-fixed": "#c4e7ff",
+            "inverse-surface": "#dae2fd",
+            "status-defect-surface": "rgba(244, 63, 94, 0.12)",
+            "border-subtle": "rgba(148, 163, 184, 0.12)",
+            "status-passed": "#10B981",
+            "text-muted": "#64748B",
+            "outline": "#908fa0",
+            "status-in-progress-surface": "rgba(245, 158, 11, 0.12)",
+            "surface-container-highest": "#2d3449",
+            "background": "#0b1326",
+            "tertiary-fixed": "#f0dbff",
+            "on-error-container": "#ffdad6",
+            "inverse-on-surface": "#283044",
+            "surface": "#0b1326",
+            "on-tertiary-container": "#400071",
+            "on-tertiary-fixed-variant": "#6900b3",
+            "on-secondary-container": "#00374d",
+            "status-passed-surface": "rgba(16, 185, 129, 0.12)",
+            "on-primary-fixed-variant": "#2f2ebe",
+            "on-primary": "#1000a9",
+            "surface-variant": "#2d3449",
+            "status-release-surface": "rgba(168, 85, 247, 0.12)",
+            "text-secondary": "#94A3B8",
+            "status-in-progress": "#F59E0B",
+            "primary-fixed-dim": "#c0c1ff",
+            "on-error": "#690005",
+            "on-secondary-fixed": "#001e2c",
+            "surface-container-high": "#222a3d",
+            "on-tertiary-fixed": "#2c0051",
+            "text-primary": "#F8FAFC",
+            "error-container": "#93000a",
+            "surface-container-low": "#131b2e",
+            "surface-canvas": "#0F172A",
+            "on-primary-fixed": "#07006c",
+            "on-primary-container": "#0d0096"
+          },
+          borderRadius: {
+            DEFAULT: "0.125rem",
+            lg: "0.25rem",
+            xl: "0.5rem",
+            "2xl": "0.75rem",
+            full: "9999px"
+          },
+          spacing: {
+            "space-xxs": "0.125rem",
+            "margin-desktop": "1.5rem",
+            "space-xs": "0.25rem",
+            "space-xl": "1.5rem",
+            "space-sm": "0.5rem",
+            "space-3xl": "3rem",
+            "margin": "1rem",
+            "space-lg": "1rem",
+            "space-md": "0.75rem",
+            "space-2xl": "2rem",
+            "gutter-desktop": "1.5rem",
+            "gutter": "1rem"
+          },
+          fontFamily: {
+            "geist": ["Geist", "sans-serif"],
+            "inter": ["Inter", "sans-serif"],
+            "jetbrains": ["JetBrains Mono", "monospace"]
+          },
+          fontSize: {
+            "mono-lg": ["13px", { lineHeight: "20px", fontWeight: "500" }],
+            "headline-md": ["20px", { lineHeight: "28px", letterSpacing: "-0.015em", fontWeight: "600" }],
+            "headline-xl": ["32px", { lineHeight: "40px", letterSpacing: "-0.025em", fontWeight: "600" }],
+            "label-md": ["12px", { lineHeight: "16px", letterSpacing: "0.01em", fontWeight: "500" }],
+            "body-sm": ["12px", { lineHeight: "18px", fontWeight: "400" }],
+            "headline-sm": ["16px", { lineHeight: "24px", letterSpacing: "-0.01em", fontWeight: "600" }],
+            "body-md": ["13px", { lineHeight: "20px", fontWeight: "400" }],
+            "mono-md": ["11px", { lineHeight: "16px", fontWeight: "500" }],
+            "body-lg": ["15px", { lineHeight: "24px", fontWeight: "400" }],
+            "label-sm": ["11px", { lineHeight: "14px", letterSpacing: "0.02em", fontWeight: "600" }],
+            "headline-lg": ["24px", { lineHeight: "32px", letterSpacing: "-0.02em", fontWeight: "600" }]
+          }
+        }
+      }
+    };
+  </script>
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+<body class="bg-surface-base font-inter text-body-md text-text-primary antialiased min-h-screen selection:bg-primary-container selection:text-on-primary-container relative overflow-x-hidden">
+  <!-- Grid background overlay -->
+  <div class="fixed inset-0 pointer-events-none bg-[linear-gradient(to_right,rgba(148,163,184,0.03)_1px,transparent_1px),linear-gradient(to_bottom,rgba(148,163,184,0.03)_1px,transparent_1px)] bg-[size:32px_32px]"></div>
+  
+  <!-- Toast container -->
+  <div id="toast-container" class="fixed top-4 right-4 z-[100] flex flex-col gap-2"></div>
+  
+  <!-- Modal backdrop -->
+  <div id="modal-backdrop" class="fixed inset-0 z-[90] bg-surface-base/75 backdrop-blur-sm hidden"></div>
+  <div id="modal-container" class="fixed inset-0 z-[91] flex items-center justify-center hidden"></div>
+
+  <!-- App root -->
+  <div id="app" class="relative z-10 min-h-screen flex flex-col"></div>
+  
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

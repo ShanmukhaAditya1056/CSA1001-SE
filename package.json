@@ -1,0 +1,21 @@
+{
+  "name": "se-csa1001",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "server": "node server/src/server.js",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node tests/runAllTests.js"
+  },
+  "bugs": {
+    "url": "https://github.com/ShanmukhaAditya1056/CSA1001-SE/issues"
+  },
+  "homepage": "https://github.com/ShanmukhaAditya1056/CSA1001-SE#readme",
+  "devDependencies": {
+    "vite": "^5.4.21"
+  }
+}

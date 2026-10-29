@@ -1,0 +1,399 @@
+// DevTrack Relational Database Schema — Prisma ORM
+// Configured according to DevTrack Software Engineering Lifecycle Specification
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// ENUMS
+// ==========================================
+
+enum ProjectRole {
+  Owner
+  Developer
+  Tester
+  Viewer
+}
+
+enum MoscowPriority {
+  Must
+  Should
+  Could
+  Wont
+}
+
+enum RequirementStatus {
+  Draft
+  Approved
+  InProgress
+  Completed
+  Rejected
+}
+
+enum SprintStatus {
+  Planned
+  Active
+  Completed
+}
+
+enum TaskStatus {
+  Backlog
+  ToDo
+  InProgress
+  InReview
+  Done
+}
+
+enum TaskPriority {
+  High
+  Medium
+  Low
+}
+
+enum TestCaseStatus {
+  Active
+  Archived
+}
+
+enum TestRunResult {
+  Passed
+  Failed
+  Blocked
+  Skipped
+}
+
+enum BugSeverity {
+  Critical
+  High
+  Medium
+  Low
+}
+
+enum BugPriority {
+  High
+  Medium
+  Low
+}
+
+enum BugStatus {
+  Open
+  InProgress
+  Fixed
+  Retest
+  Closed
+  Reopened
+}
+
+enum ReleaseStatus {
+  Planned
+  InProgress
+  Released
+  Cancelled
+}
+
+// ==========================================
+// CORE ENTITIES
+// ==========================================
+
+model User {
+  id           String          @id @default(uuid())
+  email        String          @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  memberships       ProjectMember[]
+  createdProjects   Project[]            @relation("ProjectCreator")
+  assignedTasks     Task[]               @relation("TaskAssignee")
+  reportedBugs      Bug[]                @relation("BugReporter")
+  assignedBugs      Bug[]                @relation("BugAssignee")
+  executedTestRuns  TestRun[]            @relation("TestRunExecutor")
+  requirementAudit  RequirementHistory[] @relation("AuditAuthor")
+
+  @@index([email])
+}
+
+model Project {
+  id          String    @id @default(uuid())
+  name        String
+  key         String    @unique
+  description String?
+  startDate   DateTime?
+  endDate     DateTime?
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  creator      User            @relation("ProjectCreator", fields: [createdById], references: [id])
+  members      ProjectMember[]
+  requirements Requirement[]
+  sprints      Sprint[]
+  tasks        Task[]
+  testCases    TestCase[]
+  testRuns     TestRun[]
+  bugs         Bug[]
+  releases     Release[]
+
+  @@index([key])
+  @@index([createdById])
+}
+
+model ProjectMember {
+  id        String      @id @default(uuid())
+  projectId String
+  userId    String
+  role      ProjectRole @default(Developer)
+  addedAt   DateTime    @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@index([userId])
+}
+
+model Requirement {
+  id                 String            @id @default(uuid())
+  projectId          String
+  title              String
+  description        String
+  priority           MoscowPriority    @default(Must)
+  status             RequirementStatus @default(Draft)
+  acceptanceCriteria String?
+  targetReleaseId    String?
+  createdById        String
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  project       Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  targetRelease Release?             @relation(fields: [targetReleaseId], references: [id], onDelete: SetNull)
+  history       RequirementHistory[]
+  tasks         RequirementTask[]
+  testCases     RequirementTestCase[]
+  bugs          Bug[]
+
+  @@index([projectId])
+  @@index([status])
+  @@index([priority])
+}
+
+model RequirementHistory {
+  id            String   @id @default(uuid())
+  requirementId String
+  field         String
+  oldValue      String?
+  newValue      String?
+  changedById   String
+  changedAt     DateTime @default(now())
+
+  requirement Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  changedBy   User        @relation("AuditAuthor", fields: [changedById], references: [id])
+
+  @@index([requirementId])
+  @@index([changedAt])
+}
+
+model Sprint {
+  id        String       @id @default(uuid())
+  projectId String
+  name      String
+  goal      String
+  startDate DateTime
+  endDate   DateTime
+  status    SprintStatus @default(Planned)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks   Task[]
+
+  @@index([projectId])
+  @@index([status])
+}
+
+model Task {
+  id          String       @id @default(uuid())
+  projectId   String
+  sprintId    String?
+  title       String
+  description String?
+  assigneeId  String?
+  priority    TaskPriority @default(Medium)
+  status      TaskStatus   @default(Backlog)
+  estimate    Int?         // Story points (1, 2, 3, 5, 8, 13)
+  dueDate     DateTime?
+  createdById String
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  project      Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sprint       Sprint?           @relation(fields: [sprintId], references: [id], onDelete: SetNull)
+  assignee     User?             @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  requirements RequirementTask[]
+  releases     ReleaseTask[]
+  bugs         Bug[]
+
+  @@index([projectId])
+  @@index([sprintId])
+  @@index([status])
+  @@index([assigneeId])
+}
+
+model TestCase {
+  id             String         @id @default(uuid())
+  projectId      String
+  title          String
+  objective      String?
+  preconditions  String?
+  steps          String
+  expectedResult String
+  status         TestCaseStatus @default(Active)
+  createdById    String
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  project      Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requirements RequirementTestCase[]
+  testRuns     TestRun[]
+
+  @@index([projectId])
+  @@index([status])
+}
+
+model TestRun {
+  id           String        @id @default(uuid())
+  projectId    String
+  testCaseId   String
+  result       TestRunResult
+  actualResult String?
+  notes        String?
+  executedById String
+  executedAt   DateTime      @default(now())
+  bugId        String?
+
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  testCase TestCase  @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+  executor User      @relation("TestRunExecutor", fields: [executedById], references: [id])
+  bugs     Bug[]     @relation("BugTestRun")
+
+  @@index([projectId])
+  @@index([testCaseId])
+  @@index([result])
+}
+
+model Bug {
+  id                   String      @id @default(uuid())
+  projectId            String
+  title                String
+  description          String
+  stepsToReproduce     String?
+  expectedResult       String?
+  actualResult         String?
+  severity             BugSeverity @default(Medium)
+  priority             BugPriority @default(Medium)
+  status               BugStatus   @default(Open)
+  reporterById         String
+  assigneeId           String?
+  relatedTaskId        String?
+  relatedRequirementId String?
+  relatedTestRunId     String?
+  releaseId            String?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+
+  project            Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  reporter           User         @relation("BugReporter", fields: [reporterById], references: [id])
+  assignee           User?        @relation("BugAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  relatedTask        Task?        @relation(fields: [relatedTaskId], references: [id], onDelete: SetNull)
+  relatedRequirement Requirement? @relation(fields: [relatedRequirementId], references: [id], onDelete: SetNull)
+  relatedTestRun     TestRun?     @relation("BugTestRun", fields: [relatedTestRunId], references: [id], onDelete: SetNull)
+  release            Release?     @relation(fields: [releaseId], references: [id], onDelete: SetNull)
+  releaseBugs        ReleaseBug[]
+
+  @@index([projectId])
+  @@index([severity])
+  @@index([status])
+  @@index([assigneeId])
+}
+
+model Release {
+  id         String        @id @default(uuid())
+  projectId  String
+  name       String
+  summary    String?
+  status     ReleaseStatus @default(Planned)
+  targetDate DateTime
+  actualDate DateTime?
+  createdById String
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requirements Requirement[]
+  tasks        ReleaseTask[]
+  bugs         ReleaseBug[]
+  allBugs      Bug[]
+
+  @@index([projectId])
+  @@index([status])
+}
+
+// ==========================================
+// JOIN TABLES FOR TRACEABILITY
+// ==========================================
+
+model RequirementTask {
+  requirementId String
+  taskId        String
+
+  requirement Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  task        Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@id([requirementId, taskId])
+  @@index([requirementId])
+  @@index([taskId])
+}
+
+model RequirementTestCase {
+  requirementId String
+  testCaseId    String
+
+  requirement Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  testCase    TestCase    @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+
+  @@id([requirementId, testCaseId])
+  @@index([requirementId])
+  @@index([testCaseId])
+}
+
+model ReleaseTask {
+  releaseId String
+  taskId    String
+
+  release Release @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  task    Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@id([releaseId, taskId])
+  @@index([releaseId])
+  @@index([taskId])
+}
+
+model ReleaseBug {
+  releaseId String
+  bugId     String
+
+  release Release @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  bug     Bug     @relation(fields: [bugId], references: [id], onDelete: Cascade)
+
+  @@id([releaseId, bugId])
+  @@index([releaseId])
+  @@index([bugId])
+}
