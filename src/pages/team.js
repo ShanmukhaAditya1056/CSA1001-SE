@@ -12,6 +12,11 @@ export function renderTeam(container) {
   const members = store.getMembers(project.id);
   const currentUserRole = store.getUserRole(project.id);
   const isOwner = currentUserRole === 'Owner';
+  const projectInvs = store.getProjectInvitations(project.id);
+  const nowMs = Date.now();
+  const pendingInvs = projectInvs.filter(i => i.status === 'Pending' && new Date(i.expiresAt).getTime() > nowMs);
+  const historyInvs = projectInvs.filter(i => i.status !== 'Pending' || new Date(i.expiresAt).getTime() <= nowMs);
+
 
   container.innerHTML = `
     <div class="relative w-full px-6 py-6">
@@ -30,11 +35,12 @@ export function renderTeam(container) {
         </div>
 
         <div class="flex items-center gap-3">
-          <button id="add-member-btn" class="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary hover:bg-primary-fixed text-on-primary font-semibold text-body-md transition-all shadow-md shadow-primary/20 active:scale-95">
+          <button id="add-member-btn" class="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary hover:bg-primary-fixed text-on-primary font-semibold text-body-md transition-all shadow-md shadow-primary/20 active:scale-95 cursor-pointer">
             <span class="material-symbols-outlined text-[20px]">person_add</span>
-            <span>+ Add Member</span>
+            <span>+ Invite Member</span>
           </button>
         </div>
+
       </div>
 
       <!-- Role Permissions Summary Grid -->
@@ -125,8 +131,88 @@ export function renderTeam(container) {
           }).join('')}
         </div>
       </div>
+
+      <!-- Pending Invitations Table -->
+      <div class="mt-8 bg-surface-canvas border border-border-subtle rounded-xl overflow-hidden shadow-sm">
+        <div class="p-4 border-b border-border-subtle flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-lg bg-secondary/15 text-secondary flex items-center justify-center">
+              <span class="material-symbols-outlined text-[18px]">outgoing_mail</span>
+            </div>
+            <div>
+              <h2 class="font-geist text-headline-sm font-bold text-text-primary">Pending Invitations (${pendingInvs.length})</h2>
+              <p class="text-[12px] text-text-muted">Awaiting explicit acceptance via recipient's in-app inbox or secure link</p>
+            </div>
+          </div>
+          <span class="text-[11px] font-jetbrains text-text-muted">Links valid for 7 days</span>
+        </div>
+
+        ${pendingInvs.length === 0 ? `
+          <div class="p-8 text-center text-text-muted text-body-sm font-jetbrains">
+            <span class="material-symbols-outlined text-[28px] text-text-muted mb-1 block">forward_to_inbox</span>
+            No pending invitations. Click <strong>+ Invite Member</strong> above to invite a collaborator.
+          </div>
+        ` : `
+          <div class="divide-y divide-border-subtle">
+            ${pendingInvs.map(inv => {
+              const inviteLink = `${window.location.origin}${window.location.pathname}#/invite?token=${inv.token}`;
+              return `
+                <div class="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 hover:bg-surface-panel/30 transition-colors">
+                  <div class="space-y-1">
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <span class="font-geist text-body-md font-bold text-text-primary">${inv.inviteeEmail}</span>
+                      <span class="font-jetbrains text-[10px] font-bold px-2 py-0.5 rounded bg-secondary/15 text-secondary border border-secondary/30 uppercase">${inv.role}</span>
+                      <span class="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-surface-panel text-secondary text-[10px] font-jetbrains">
+                        <span class="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse"></span> PENDING
+                      </span>
+                    </div>
+                    <div class="text-[11px] font-jetbrains text-text-muted">
+                      Invited by ${inv.inviterName} • Expires: ${formatDate(inv.expiresAt)}
+                    </div>
+                  </div>
+
+                  <div class="flex items-center gap-2 self-start md:self-center">
+                    <button class="copy-invite-link-btn flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-primary text-[12px] font-jetbrains border border-border-subtle transition-all cursor-pointer" data-link="${inviteLink}">
+                      <span class="material-symbols-outlined text-[15px]">link</span>
+                      <span>Copy Link</span>
+                    </button>
+                    ${isOwner ? `
+                      <button class="revoke-invite-btn text-text-muted hover:text-status-defect p-1.5 rounded-lg hover:bg-surface-panel transition-colors cursor-pointer" data-id="${inv.id}" data-email="${inv.inviteeEmail}" title="Revoke Invitation">
+                        <span class="material-symbols-outlined text-[18px]">cancel</span>
+                      </button>
+                    ` : ''}
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `}
+
+        ${historyInvs.length > 0 ? `
+          <div class="p-3 bg-surface-base/40 border-t border-border-subtle/60">
+            <details class="text-[12px]">
+              <summary class="font-jetbrains text-text-muted cursor-pointer hover:text-text-primary">
+                View Past Invitations (${historyInvs.length})
+              </summary>
+              <div class="mt-2 divide-y divide-border-subtle/50">
+                ${historyInvs.map(h => `
+                  <div class="py-2 flex items-center justify-between text-[11px] font-jetbrains">
+                    <span class="text-text-secondary">${h.inviteeEmail} (${h.role})</span>
+                    <span class="px-2 py-0.5 rounded ${
+                      h.status === 'Accepted' ? 'bg-status-passed-surface text-status-passed' :
+                      h.status === 'Declined' ? 'bg-surface-panel text-text-muted' :
+                      'bg-status-defect-surface text-status-defect'
+                    }">${h.status.toUpperCase()}</span>
+                  </div>
+                `).join('')}
+              </div>
+            </details>
+          </div>
+        ` : ''}
+      </div>
     </div>
   `;
+
 
   // Attach role change
   container.querySelectorAll('.member-role-select').forEach(sel => {
@@ -160,11 +246,42 @@ export function renderTeam(container) {
     });
   });
 
-  // Add Member trigger
+  // Copy invite link trigger
+  container.querySelectorAll('.copy-invite-link-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const link = btn.dataset.link;
+      try {
+        await navigator.clipboard.writeText(link);
+        showToast('Invitation link copied to clipboard!', 'success');
+      } catch {
+        prompt('Copy invitation link:', link);
+      }
+    });
+  });
+
+  // Revoke invitation trigger
+  container.querySelectorAll('.revoke-invite-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const invId = btn.dataset.id;
+      const email = btn.dataset.email;
+      showConfirm(`Revoke invitation for "${email}"? The recipient will no longer be able to use this link.`, () => {
+        const res = store.revokeInvitation(invId);
+        if (res.error) {
+          showToast(res.error, 'error');
+        } else {
+          showToast(`Invitation for ${email} revoked.`, 'info');
+          renderTeam(container);
+        }
+      }, { title: 'Revoke Invitation', destructive: true, confirmText: 'Revoke' });
+    });
+  });
+
+  // Add Member / Invite trigger
   container.querySelector('#add-member-btn')?.addEventListener('click', () => {
     openAddMemberModal(project.id, () => renderTeam(container));
   });
 }
+
 
 function openAddMemberModal(projectId, onSaved) {
   const allUsers = store.getAllUsers();
@@ -272,14 +389,61 @@ function openAddMemberModal(projectId, onSaved) {
     const email = document.getElementById('mem-email').value.trim();
     const role = document.getElementById('mem-role').value;
 
-    const res = store.addMember(projectId, email, role);
+    const res = store.createInvitation(projectId, email, role);
     if (res.error) {
       errorText.textContent = res.error;
       errorBox.classList.remove('hidden');
     } else {
       closeModal();
-      showToast(`${email} added as ${role}!`, 'success');
+      const inv = res.data;
+      const inviteUrl = `${window.location.origin}${window.location.pathname}#/invite?token=${inv.token}`;
+
+      // Show immediate invitation confirmation modal with link sharing
+      showModal(`
+        <div class="space-y-4">
+          <div class="p-3.5 rounded-xl bg-surface-base border border-secondary/30 flex items-start gap-3">
+            <div class="w-10 h-10 rounded-xl bg-secondary/15 text-secondary flex items-center justify-center shrink-0">
+              <span class="material-symbols-outlined text-[24px]">mark_email_read</span>
+            </div>
+            <div>
+              <h4 class="font-geist text-body-md font-bold text-text-primary">Invitation Successfully Created!</h4>
+              <p class="text-[12px] text-text-muted mt-0.5">
+                An invitation for <strong class="text-text-primary">${email}</strong> as <strong class="text-secondary">${role}</strong> is now pending.
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-label-md font-medium text-text-secondary mb-1">Direct Secure Invitation Link</label>
+            <div class="flex items-center gap-2">
+              <input type="text" id="created-invite-link" readonly value="${inviteUrl}"
+                class="w-full bg-surface-base text-text-primary font-jetbrains text-[12px] px-3 py-2 rounded-lg border border-border-subtle focus:border-primary outline-none" />
+              <button id="copy-created-link-btn" class="px-4 py-2 rounded-lg bg-primary hover:bg-primary-fixed text-on-primary font-semibold text-body-sm shadow-md shadow-primary/20 shrink-0 cursor-pointer">
+                Copy Link
+              </button>
+            </div>
+            <p class="text-[11px] text-text-muted mt-1 font-jetbrains">
+              Recipient can also accept directly from their in-app Invitation Inbox when logged in.
+            </p>
+          </div>
+
+          <div class="flex justify-end pt-2">
+            <button type="button" onclick="window.__closeModal()" class="px-5 py-2 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-primary text-body-sm font-medium">Done</button>
+          </div>
+        </div>
+      `, { title: 'Project Invitation Dispatched' });
+
+      document.getElementById('copy-created-link-btn')?.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(inviteUrl);
+          showToast('Invitation link copied to clipboard!', 'success');
+        } catch {
+          prompt('Copy link:', inviteUrl);
+        }
+      });
+
       if (onSaved) onSaved();
     }
   });
 }
+

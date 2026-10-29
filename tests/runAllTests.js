@@ -42,8 +42,8 @@ async function main() {
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
     console.log('===============================================================');
     console.log(`🎉 ALL TEST SUITES PASSED! (${passedSuites}/${totalSuites} suites passed in ${duration}s)`);
-    console.log('   - Unit Tests: 7/7 suites passed');
-    console.log('   - API Security & Isolation: 6/6 suites passed');
+    console.log('   - Unit Tests: 8/8 suites passed');
+    console.log('   - API Security & Isolation: 7/7 suites passed');
     console.log('   - Lifecycle Journey: 12/12 steps passed');
     console.log('===============================================================');
     process.exit(0);

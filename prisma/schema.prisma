@@ -97,6 +97,14 @@ enum ReleaseStatus {
   Cancelled
 }
 
+enum InvitationStatus {
+  Pending
+  Accepted
+  Declined
+  Expired
+}
+
+
 // ==========================================
 // CORE ENTITIES
 // ==========================================
@@ -116,6 +124,7 @@ model User {
   assignedBugs      Bug[]                @relation("BugAssignee")
   executedTestRuns  TestRun[]            @relation("TestRunExecutor")
   requirementAudit  RequirementHistory[] @relation("AuditAuthor")
+  sentInvitations   ProjectInvitation[]  @relation("InvitationCreator")
 
   @@index([email])
 }
@@ -140,6 +149,7 @@ model Project {
   testRuns     TestRun[]
   bugs         Bug[]
   releases     Release[]
+  invitations  ProjectInvitation[]
 
   @@index([key])
   @@index([createdById])
@@ -397,3 +407,24 @@ model ReleaseBug {
   @@index([releaseId])
   @@index([bugId])
 }
+
+model ProjectInvitation {
+  id           String           @id @default(uuid())
+  projectId    String
+  inviterId    String
+  inviteeEmail String
+  role         ProjectRole      @default(Developer)
+  status       InvitationStatus @default(Pending)
+  token        String           @unique
+  expiresAt    DateTime
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  inviter User    @relation("InvitationCreator", fields: [inviterId], references: [id])
+
+  @@index([inviteeEmail])
+  @@index([token])
+  @@index([projectId])
+}
+

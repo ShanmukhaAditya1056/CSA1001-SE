@@ -28,8 +28,10 @@ export const DB = {
   testCases: [],
   testRuns: [],
   bugs: [],
-  releases: []
+  releases: [],
+  invitations: []
 };
+
 
 // Seed initial workspace data safely
 export function resetDb() {
@@ -88,7 +90,9 @@ export function resetDb() {
   DB.releases = [
     { id: 'rel-001', projectId: 'proj-001', name: 'v1.0.0 — Foundation Release', summary: 'Core foundation and auth', status: 'Planned', targetDate: '2026-11-01', actualDate: null }
   ];
+  DB.invitations = [];
 }
+
 
 // Initial seed
 resetDb();
@@ -339,6 +343,124 @@ export const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // 4.5 Central In-App Invitations Endpoints (Inbox & Link Verification)
+    if (pathname === '/api/v1/invitations/my' && method === 'GET') {
+      const user = getAuthUser(req);
+      if (!user) {
+        sendJson(res, 401, null, { code: 'UNAUTHORIZED', message: 'Authentication required.' });
+        return;
+      }
+      const nowMs = Date.now();
+      DB.invitations.forEach(inv => {
+        if (inv.status === 'Pending' && new Date(inv.expiresAt).getTime() <= nowMs) {
+          inv.status = 'Expired';
+        }
+      });
+      const userInvs = DB.invitations.filter(inv => inv.inviteeEmail.toLowerCase() === user.email.toLowerCase());
+      sendJson(res, 200, userInvs);
+      return;
+    }
+
+    const tokenLookupMatch = pathname.match(/^\/api\/v1\/invitations\/token\/([^/]+)$/);
+    if (tokenLookupMatch && method === 'GET') {
+      const token = tokenLookupMatch[1];
+      const inv = DB.invitations.find(i => i.token === token);
+      if (!inv) {
+        sendJson(res, 404, null, { code: 'NOT_FOUND', message: 'Invitation not found or invalid token.' });
+        return;
+      }
+      if (inv.status === 'Pending' && new Date(inv.expiresAt).getTime() <= Date.now()) {
+        inv.status = 'Expired';
+      }
+      sendJson(res, 200, {
+        id: inv.id,
+        projectId: inv.projectId,
+        projectName: inv.projectName,
+        projectKey: inv.projectKey,
+        inviterName: inv.inviterName,
+        inviterEmail: inv.inviterEmail,
+        inviteeEmail: inv.inviteeEmail,
+        role: inv.role,
+        status: inv.status,
+        expiresAt: inv.expiresAt,
+        createdAt: inv.createdAt
+      });
+      return;
+    }
+
+    const invActionMatch = pathname.match(/^\/api\/v1\/invitations\/([^/]+)\/(accept|decline)$/);
+    if (invActionMatch && method === 'POST') {
+      const user = getAuthUser(req);
+      if (!user) {
+        sendJson(res, 401, null, { code: 'UNAUTHORIZED', message: 'Authentication required to respond to invitation.' });
+        return;
+      }
+
+      const invId = invActionMatch[1];
+      const action = invActionMatch[2];
+      const inv = DB.invitations.find(i => i.id === invId || i.token === invId);
+      if (!inv) {
+        sendJson(res, 404, null, { code: 'NOT_FOUND', message: 'Invitation not found.' });
+        return;
+      }
+
+      if (new Date(inv.expiresAt).getTime() <= Date.now()) {
+        inv.status = 'Expired';
+        sendJson(res, 410, null, { code: 'INVITATION_EXPIRED', message: 'This invitation has expired.' });
+        return;
+      }
+
+      if (user.email.toLowerCase() !== inv.inviteeEmail.toLowerCase()) {
+        sendJson(res, 403, null, {
+          code: 'FORBIDDEN',
+          message: `This invitation was issued to "${inv.inviteeEmail}". You are authenticated as "${user.email}".`
+        });
+        return;
+      }
+
+      if (inv.status !== 'Pending') {
+        sendJson(res, 400, null, {
+          code: 'INVALID_STATUS',
+          message: `Invitation has already been ${inv.status.toLowerCase()}.`
+        });
+        return;
+      }
+
+      if (action === 'decline') {
+        inv.status = 'Declined';
+        inv.declinedAt = new Date().toISOString();
+        sendJson(res, 200, { message: 'Invitation declined successfully.', invitation: inv });
+        return;
+      }
+
+      if (action === 'accept') {
+        const isAlreadyMember = DB.members.some(m => m.projectId === inv.projectId && m.userId === user.id);
+        if (isAlreadyMember) {
+          inv.status = 'Accepted';
+          sendJson(res, 409, null, { code: 'ALREADY_MEMBER', message: 'You are already a member of this project.' });
+          return;
+        }
+
+        const newMember = {
+          id: generateId('mem'),
+          projectId: inv.projectId,
+          userId: user.id,
+          role: inv.role
+        };
+        DB.members.push(newMember);
+        inv.status = 'Accepted';
+        inv.acceptedAt = new Date().toISOString();
+
+        const project = DB.projects.find(p => p.id === inv.projectId);
+        sendJson(res, 200, {
+          message: 'Invitation accepted successfully.',
+          membership: { ...newMember, userName: user.name, userEmail: user.email },
+          project
+        });
+        return;
+      }
+    }
+
     // 5. Project-Scoped Endpoints with Strict Project Isolation & Role Verification
     // Format: /api/v1/projects/:projectId/...
     const projectSubRouteMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)(\/.*)?$/);
@@ -407,6 +529,93 @@ export const server = http.createServer(async (req, res) => {
         };
         DB.members.push(newMember);
         sendJson(res, 201, { ...newMember, userName: registeredUser.name, userEmail: registeredUser.email });
+        return;
+      }
+
+      // --- Project Invitations Endpoints ---
+      if (subpath === '/invitations' && method === 'GET') {
+        const projectInvs = DB.invitations.filter(inv => inv.projectId === projectId);
+        sendJson(res, 200, projectInvs);
+        return;
+      }
+
+      if (subpath === '/invitations' && method === 'POST') {
+        if (access.role !== 'Owner') {
+          sendJson(res, 403, null, { code: 'FORBIDDEN', message: 'Forbidden: Only project owners can invite new members.' });
+          return;
+        }
+
+        const body = await readBody(req);
+        const cleanEmail = (body.email || '').trim().toLowerCase();
+        if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+          sendJson(res, 400, null, { code: 'VALIDATION_ERROR', message: 'Valid email address is required.' });
+          return;
+        }
+
+        const isMember = DB.members.some(m => {
+          if (m.projectId !== projectId) return false;
+          const u = DB.users.find(usr => usr.id === m.userId);
+          return u && u.email.toLowerCase() === cleanEmail;
+        });
+
+        if (isMember) {
+          sendJson(res, 409, null, { code: 'ALREADY_MEMBER', message: `User with email "${cleanEmail}" is already a member of this project.` });
+          return;
+        }
+
+        const nowMs = Date.now();
+        const existingPending = DB.invitations.find(inv =>
+          inv.projectId === projectId &&
+          inv.inviteeEmail.toLowerCase() === cleanEmail &&
+          inv.status === 'Pending' &&
+          new Date(inv.expiresAt).getTime() > nowMs
+        );
+
+        if (existingPending) {
+          sendJson(res, 409, null, { code: 'INVITATION_ALREADY_PENDING', message: `A pending invitation has already been sent to "${cleanEmail}".` });
+          return;
+        }
+
+        const allowedRoles = ['Owner', 'Developer', 'Tester', 'Viewer'];
+        const role = allowedRoles.includes(body.role) ? body.role : 'Developer';
+        const token = 'inv_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+        const invitation = {
+          id: generateId('inv'),
+          projectId,
+          projectName: access.project.name,
+          projectKey: access.project.key,
+          inviterId: user.id,
+          inviterName: user.name,
+          inviterEmail: user.email,
+          inviteeEmail: cleanEmail,
+          role,
+          status: 'Pending',
+          token,
+          expiresAt,
+          createdAt: new Date().toISOString()
+        };
+
+        DB.invitations.push(invitation);
+        sendJson(res, 201, invitation);
+        return;
+      }
+
+      const invRevokeMatch = subpath.match(/^\/invitations\/([^/]+)$/);
+      if (invRevokeMatch && method === 'DELETE') {
+        if (access.role !== 'Owner') {
+          sendJson(res, 403, null, { code: 'FORBIDDEN', message: 'Forbidden: Only project owners can revoke invitations.' });
+          return;
+        }
+        const invId = invRevokeMatch[1];
+        const invIndex = DB.invitations.findIndex(inv => inv.id === invId && inv.projectId === projectId);
+        if (invIndex === -1) {
+          sendJson(res, 404, null, { code: 'NOT_FOUND', message: 'Invitation not found.' });
+          return;
+        }
+        DB.invitations[invIndex].status = 'Revoked';
+        sendJson(res, 200, { message: 'Invitation revoked successfully', invitation: DB.invitations[invIndex] });
         return;
       }
 

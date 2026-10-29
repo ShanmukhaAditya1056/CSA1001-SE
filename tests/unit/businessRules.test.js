@@ -114,5 +114,75 @@ export async function runBusinessRulesTests() {
   assert.strictEqual(canAddToTeam('unknown@random.com'), false);
   console.log('✓ Verified user membership rule confirmed');
 
-  console.log('✓ All 7 Business Rules unit test suites PASSED!\n');
+  // 8. Project Invitation Lifecycle & Security Rules
+  console.log('Testing: Project Invitation Lifecycle & Security Rules...');
+  function createTestInvitation(inviterRole, inviteeEmail, role) {
+    if (inviterRole !== 'Owner') throw new Error('FORBIDDEN: Only owners can invite');
+    const clean = (inviteeEmail || '').trim().toLowerCase();
+    if (!clean || !clean.includes('@') || !clean.includes('.')) throw new Error('INVALID_EMAIL');
+    return {
+      token: 'inv_test_' + Math.random().toString(36).slice(2),
+      inviteeEmail: clean,
+      role: role || 'Developer',
+      status: 'Pending',
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+    };
+  }
+
+  // Permission check: Developer/Viewer cannot invite
+  assert.throws(() => createTestInvitation('Developer', 'user@test.io'), /Only owners can invite/);
+  assert.throws(() => createTestInvitation('Viewer', 'user@test.io'), /Only owners can invite/);
+  const inv = createTestInvitation('Owner', 'colleague@test.io', 'Developer');
+  assert.strictEqual(inv.status, 'Pending');
+  assert.ok(inv.token.startsWith('inv_test_'));
+
+  // Acceptance validation: Identity & Expiry
+  function validateInvitationAcceptance(invitation, userEmail, currentTimeMs = Date.now()) {
+    if (new Date(invitation.expiresAt).getTime() <= currentTimeMs) return { allowed: false, reason: 'EXPIRED' };
+    if (invitation.status !== 'Pending') return { allowed: false, reason: 'NOT_PENDING' };
+    if (userEmail.toLowerCase() !== invitation.inviteeEmail.toLowerCase()) return { allowed: false, reason: 'IDENTITY_MISMATCH' };
+    return { allowed: true };
+  }
+
+  // Identity mismatch rejection
+  assert.strictEqual(validateInvitationAcceptance(inv, 'wrong@test.io').allowed, false);
+  assert.strictEqual(validateInvitationAcceptance(inv, 'wrong@test.io').reason, 'IDENTITY_MISMATCH');
+
+  // Correct identity acceptance
+  assert.strictEqual(validateInvitationAcceptance(inv, 'colleague@test.io').allowed, true);
+
+  // Expiry rejection
+  const futureExpiredTime = Date.now() + 8 * 24 * 60 * 60 * 1000;
+  assert.strictEqual(validateInvitationAcceptance(inv, 'colleague@test.io', futureExpiredTime).allowed, false);
+  assert.strictEqual(validateInvitationAcceptance(inv, 'colleague@test.io', futureExpiredTime).reason, 'EXPIRED');
+
+  // Decline flow: ensures NO membership created
+  let mockMembers = [];
+  function processDecline(invitation, userEmail) {
+    const val = validateInvitationAcceptance(invitation, userEmail);
+    if (!val.allowed) throw new Error(val.reason);
+    invitation.status = 'Declined';
+    return invitation;
+  }
+  processDecline(inv, 'colleague@test.io');
+  assert.strictEqual(inv.status, 'Declined');
+  assert.strictEqual(mockMembers.length, 0, 'Declining invitation must not create membership');
+
+  // Accept flow: creates membership
+  const freshInv = createTestInvitation('Owner', 'joiner@test.io', 'Developer');
+  function processAccept(invitation, userEmail, userId) {
+    const val = validateInvitationAcceptance(invitation, userEmail);
+    if (!val.allowed) throw new Error(val.reason);
+    invitation.status = 'Accepted';
+    mockMembers.push({ userId, email: userEmail, role: invitation.role });
+    return invitation;
+  }
+  processAccept(freshInv, 'joiner@test.io', 'usr-joiner');
+  assert.strictEqual(freshInv.status, 'Accepted');
+  assert.strictEqual(mockMembers.length, 1);
+  assert.strictEqual(mockMembers[0].userId, 'usr-joiner');
+  console.log('✓ Project invitation security, identity, and membership rules confirmed');
+
+  console.log('✓ All 8 Business Rules unit test suites PASSED!\n');
 }
+

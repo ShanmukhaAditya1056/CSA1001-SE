@@ -1,6 +1,7 @@
-// DevTrack Dashboard View
 import { store } from '../store.js';
 import { statusChip, priorityChip, severityChip, formatDate, showToast, showModal, closeModal } from '../ui.js';
+import { openInvitationsInboxModal } from '../main.js';
+
 
 export function renderDashboard(container) {
   const project = store.getActiveProject();
@@ -64,8 +65,14 @@ export function renderDashboard(container) {
   const sampleBug = bugs[0] || null;
   const sampleRel = targetRelease;
 
+  // Pending project invitations for current user
+  const userEmail = store.currentUser?.email || '';
+  const nowMs = Date.now();
+  const pendingInvs = userEmail ? store.getUserInvitations(userEmail).filter(i => i.status === 'Pending' && new Date(i.expiresAt).getTime() > nowMs) : [];
+
   container.innerHTML = `
     <div class="relative w-full px-6 py-6 overflow-hidden">
+
       <!-- Glow ambient effects -->
       <div class="absolute -top-32 -left-20 w-96 h-96 bg-primary/10 rounded-full blur-3xl pointer-events-none"></div>
       <div class="absolute top-1/2 right-0 w-80 h-80 bg-status-defect/5 rounded-full blur-3xl pointer-events-none"></div>
@@ -102,6 +109,31 @@ export function renderDashboard(container) {
           </button>
         </div>
       </div>
+
+      <!-- Pending Invitations Attention Banner -->
+      ${pendingInvs.length > 0 ? `
+        <div class="relative z-10 mb-8 p-4 rounded-xl bg-surface-canvas border border-secondary/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg shadow-secondary/5 animate-scale-in">
+          <div class="flex items-center gap-3.5">
+            <div class="w-10 h-10 rounded-xl bg-secondary/15 text-secondary flex items-center justify-center shrink-0 border border-secondary/30">
+              <span class="material-symbols-outlined text-[24px]">mark_email_unread</span>
+            </div>
+            <div>
+              <div class="font-geist text-body-md font-bold text-text-primary flex items-center gap-2">
+                <span>You have ${pendingInvs.length} pending project workspace invitation${pendingInvs.length > 1 ? 's' : ''}</span>
+                <span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
+              </div>
+              <div class="text-[12px] text-text-muted mt-0.5">
+                Invited to join <strong class="text-text-primary">${pendingInvs[0].projectName}</strong> (${pendingInvs[0].role}) by ${pendingInvs[0].inviterName}${pendingInvs.length > 1 ? ` plus ${pendingInvs.length - 1} other invitation(s)` : ''}.
+              </div>
+            </div>
+          </div>
+          <button id="dash-view-invites-btn" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary text-on-secondary font-bold text-body-sm hover:brightness-110 shadow-md shadow-secondary/20 transition-all self-end sm:self-center shrink-0 cursor-pointer">
+            <span class="material-symbols-outlined text-[18px]">mail</span>
+            <span>Review & Respond</span>
+          </button>
+        </div>
+      ` : ''}
+
 
       <!-- Top Summary Metrics Grid -->
       <div class="relative z-10 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 mb-8">
@@ -479,7 +511,9 @@ export function renderDashboard(container) {
   container.querySelector('#dash-log-defect-btn')?.addEventListener('click', () => openNewDefectModal(project.id));
   container.querySelector('#dash-exec-test-btn')?.addEventListener('click', () => openNewTestRunModal(project.id));
   container.querySelector('#dash-ci-btn')?.addEventListener('click', () => { window.location.hash = '#/ci-cd'; });
+  container.querySelector('#dash-view-invites-btn')?.addEventListener('click', () => openInvitationsInboxModal(() => renderDashboard(container)));
 }
+
 
 function openNewRequirementModal(projectId) {
   showModal(`

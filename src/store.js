@@ -39,9 +39,11 @@ function getDefaultData() {
     testRuns: [],
     bugs: [],
     releases: [],
-    auditLogs: []
+    auditLogs: [],
+    invitations: []
   };
 }
+
 
 class Store {
   constructor() {
@@ -102,10 +104,22 @@ class Store {
           this._data.releases = this._data.releases.filter(r => !DUMMY_REL_IDS.includes(r.id));
         }
 
+        if (!this._data.invitations) {
+          this._data.invitations = [];
+        } else {
+          const nowMs = Date.now();
+          this._data.invitations.forEach(inv => {
+            if (inv.status === 'Pending' && new Date(inv.expiresAt).getTime() <= nowMs) {
+              inv.status = 'Expired';
+            }
+          });
+        }
+
         if (!this._data.activeProjectId && this._data.projects && this._data.projects.length > 0) {
           this._data.activeProjectId = this._data.projects[0].id;
         }
         this._save();
+
       } else {
         this._data = getDefaultData();
         this._save();
@@ -448,6 +462,224 @@ class Store {
     const m = data.members.find(m => m.projectId === projectId && m.userId === data.currentUser.id);
     return m ? m.role : null;
   }
+
+  // ===== INVITATIONS =====
+  createInvitation(projectId, email, role) {
+    const data = this._load();
+    if (!data.currentUser) return { error: 'Authentication required.' };
+
+    const myRole = this.getUserRole(projectId);
+    if (myRole !== 'Owner') {
+      return { error: 'Forbidden: Only project owners can invite new members.' };
+    }
+
+    const cleanEmail = (email || '').trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+      return { error: 'Please enter a valid email address.' };
+    }
+
+    // Check if user is already an active member of this project
+    const isAlreadyMember = data.members.some(m =>
+      m.projectId === projectId &&
+      ((m.userEmail && m.userEmail.toLowerCase() === cleanEmail) ||
+       (m.userId && data.users.some(u => u.id === m.userId && u.email && u.email.toLowerCase() === cleanEmail)))
+    );
+
+    if (isAlreadyMember) {
+      return { error: `User with email "${cleanEmail}" is already an active member of this project.` };
+    }
+
+    // Check if there is already an active pending invitation
+    if (!data.invitations) data.invitations = [];
+    const nowMs = Date.now();
+    const existingPending = data.invitations.find(inv =>
+      inv.projectId === projectId &&
+      inv.inviteeEmail.toLowerCase() === cleanEmail &&
+      inv.status === 'Pending' &&
+      new Date(inv.expiresAt).getTime() > nowMs
+    );
+
+    if (existingPending) {
+      return { error: `A pending invitation has already been sent to "${cleanEmail}".` };
+    }
+
+    const project = this.getProject(projectId);
+    const token = 'inv_' + generateId().replace(/-/g, '').slice(0, 16) + '_' + Math.random().toString(36).slice(2, 8);
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    const invitation = {
+      id: 'inv-' + generateId().slice(0, 8),
+      projectId,
+      projectName: project ? project.name : 'DevTrack Platform',
+      projectKey: project ? project.key : 'DEV',
+      inviterId: data.currentUser.id,
+      inviterName: data.currentUser.name,
+      inviterEmail: data.currentUser.email,
+      inviteeEmail: cleanEmail,
+      role: role || 'Developer',
+      status: 'Pending',
+      token,
+      expiresAt,
+      createdAt: now()
+    };
+
+    data.invitations.unshift(invitation);
+
+    this.addAuditLog({
+      type: 'INVITATION_SENT',
+      title: `Project Invitation Sent: ${cleanEmail}`,
+      details: `Invited to project [${invitation.projectKey}] with role: ${invitation.role}`,
+      author: data.currentUser.name,
+      icon: 'send',
+      color: 'text-secondary'
+    });
+
+    this._save();
+    return { data: invitation };
+  }
+
+  getProjectInvitations(projectId) {
+    const data = this._load();
+    return (data.invitations || []).filter(i => i.projectId === projectId);
+  }
+
+  getUserInvitations(email) {
+    const data = this._load();
+    const clean = (email || data.currentUser?.email || '').trim().toLowerCase();
+    if (!clean) return [];
+    return (data.invitations || []).filter(i => (i.inviteeEmail || '').toLowerCase() === clean);
+  }
+
+  getPendingInvitationsCount(email) {
+    const invs = this.getUserInvitations(email);
+    const nowMs = Date.now();
+    return invs.filter(i => i.status === 'Pending' && new Date(i.expiresAt).getTime() > nowMs).length;
+  }
+
+  getInvitationByToken(token) {
+    const data = this._load();
+    const inv = (data.invitations || []).find(i => i.token === token);
+    if (inv && inv.status === 'Pending' && new Date(inv.expiresAt).getTime() <= Date.now()) {
+      inv.status = 'Expired';
+      this._save();
+    }
+    return inv || null;
+  }
+
+  getInvitation(id) {
+    const data = this._load();
+    return (data.invitations || []).find(i => i.id === id || i.token === id) || null;
+  }
+
+  acceptInvitation(idOrToken) {
+    const data = this._load();
+    if (!data.currentUser) return { error: 'Authentication required. Please sign in to accept.' };
+
+    const inv = (data.invitations || []).find(i => i.id === idOrToken || i.token === idOrToken);
+    if (!inv) return { error: 'Invitation not found or invalid token.' };
+
+    if (new Date(inv.expiresAt).getTime() <= Date.now()) {
+      inv.status = 'Expired';
+      this._save();
+      return { error: 'This invitation has expired. Please ask the project owner for a new invitation.' };
+    }
+
+    if (data.currentUser.email.toLowerCase() !== inv.inviteeEmail.toLowerCase()) {
+      return {
+        error: `This invitation was issued to "${inv.inviteeEmail}". You are currently signed in as "${data.currentUser.email}". Please switch to the invited account.`
+      };
+    }
+
+    if (inv.status !== 'Pending') {
+      return { error: `This invitation has already been ${inv.status.toLowerCase()}.` };
+    }
+
+    // Check if already a member
+    const isAlreadyMember = data.members.some(m => m.projectId === inv.projectId && m.userId === data.currentUser.id);
+    if (isAlreadyMember) {
+      inv.status = 'Accepted';
+      this._save();
+      return { error: 'You are already a member of this project.' };
+    }
+
+    // CREATE PROJECT MEMBERSHIP UPON EXPLICIT ACCEPTANCE
+    const member = {
+      id: 'mem-' + generateId().slice(0, 8),
+      projectId: inv.projectId,
+      userId: data.currentUser.id,
+      userName: data.currentUser.name,
+      userEmail: data.currentUser.email,
+      role: inv.role || 'Developer',
+      addedAt: now()
+    };
+    data.members.push(member);
+    inv.status = 'Accepted';
+    inv.acceptedAt = now();
+    data.activeProjectId = inv.projectId;
+
+    this.addAuditLog({
+      type: 'INVITATION_ACCEPTED',
+      title: `Team Member Joined: ${data.currentUser.name}`,
+      details: `Accepted invitation to project [${inv.projectKey}] as ${inv.role}`,
+      author: data.currentUser.name,
+      icon: 'how_to_reg',
+      color: 'text-status-passed'
+    });
+
+    this._save();
+    return { data: { invitation: inv, membership: member } };
+  }
+
+  declineInvitation(idOrToken) {
+    const data = this._load();
+    if (!data.currentUser) return { error: 'Authentication required.' };
+
+    const inv = (data.invitations || []).find(i => i.id === idOrToken || i.token === idOrToken);
+    if (!inv) return { error: 'Invitation not found.' };
+
+    if (data.currentUser.email.toLowerCase() !== inv.inviteeEmail.toLowerCase()) {
+      return { error: 'You are not authorized to decline this invitation.' };
+    }
+
+    if (inv.status !== 'Pending') {
+      return { error: `Invitation has already been ${inv.status.toLowerCase()}.` };
+    }
+
+    // EXPLICIT DECLINE: DO NOT CREATE MEMBERSHIP!
+    inv.status = 'Declined';
+    inv.declinedAt = now();
+
+    this.addAuditLog({
+      type: 'INVITATION_DECLINED',
+      title: `Invitation Declined: ${data.currentUser.name}`,
+      details: `Declined invitation to project [${inv.projectKey}]`,
+      author: data.currentUser.name,
+      icon: 'person_cancel',
+      color: 'text-text-muted'
+    });
+
+    this._save();
+    return { data: inv };
+  }
+
+  revokeInvitation(invitationId) {
+    const data = this._load();
+    if (!data.currentUser) return { error: 'Authentication required.' };
+
+    const inv = (data.invitations || []).find(i => i.id === invitationId);
+    if (!inv) return { error: 'Invitation not found.' };
+
+    const myRole = this.getUserRole(inv.projectId);
+    if (myRole !== 'Owner') {
+      return { error: 'Forbidden: Only project owners can revoke invitations.' };
+    }
+
+    inv.status = 'Revoked';
+    inv.revokedAt = now();
+    this._save();
+    return { data: inv };
+  }
+
 
   // ===== REQUIREMENTS =====
   getRequirements(projectId, filters = {}) {

@@ -1,6 +1,7 @@
 // DevTrack — Master Application Shell & Client-Side Router
 import { store } from './store.js';
-import { avatar, showToast, showModal, closeModal } from './ui.js';
+import { avatar, showToast, showModal, closeModal, formatDate, showConfirm } from './ui.js';
+
 import { renderSignIn, renderRegister, renderForgotPassword } from './pages/auth.js';
 import { subscribeFirebaseAuthState, firebaseLogout, waitForAuthReady } from './firebase.js';
 import { renderDashboard } from './pages/dashboard.js';
@@ -14,6 +15,8 @@ import { renderTeam } from './pages/team.js';
 import { renderSettings } from './pages/settings.js';
 import { renderCicd } from './pages/cicd.js';
 import { renderGettingStarted } from './pages/gettingStarted.js';
+import { renderInvite } from './pages/invite.js';
+
 
 const app = document.getElementById('app');
 
@@ -56,6 +59,8 @@ function renderShell(contentRenderer) {
   const currentHash = window.location.hash || '#/dashboard';
   const activeNav = getActiveNavKey(currentHash);
   const userRole = store.getUserRole(project.id) || 'Lead';
+  const pendingInvsCount = user ? store.getPendingInvitationsCount(user.email) : 0;
+
 
   app.innerHTML = `
     <!-- Left Navigation Sidebar -->
@@ -201,6 +206,17 @@ function renderShell(contentRenderer) {
             <kbd class="font-jetbrains text-[10px] bg-surface-base px-1.5 py-0.5 rounded text-text-secondary border border-border-subtle">Ctrl+K</kbd>
           </button>
 
+          <!-- Central In-App Invitations Inbox Button -->
+          <button id="inbox-invitations-btn" class="relative flex items-center justify-center w-9 h-9 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-muted hover:text-text-primary border border-border-subtle transition-all cursor-pointer" title="Project Invitations Inbox">
+            <span class="material-symbols-outlined text-[20px] ${pendingInvsCount > 0 ? 'text-primary' : ''}">mail</span>
+            ${pendingInvsCount > 0 ? `
+              <span class="absolute -top-1 -right-1 flex h-4 min-w-[16px] px-1 items-center justify-center rounded-full bg-primary text-[10px] font-jetbrains font-bold text-on-primary animate-pulse shadow-sm shadow-primary/50">
+                ${pendingInvsCount}
+              </span>
+            ` : ''}
+          </button>
+
+
           <!-- User Profile & Sign Out dropdown -->
           <div class="relative group">
             <div class="flex items-center gap-2.5 p-1 rounded-lg hover:bg-surface-panel transition-colors cursor-pointer">
@@ -226,6 +242,14 @@ function renderShell(contentRenderer) {
                 <span class="material-symbols-outlined text-[16px]">manage_accounts</span>
                 <span>Team & Roles</span>
               </a>
+              <button id="menu-inbox-btn" class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-body-sm text-text-secondary hover:bg-surface-panel hover:text-text-primary transition-colors text-left cursor-pointer">
+                <div class="flex items-center gap-2">
+                  <span class="material-symbols-outlined text-[16px]">mail</span>
+                  <span>Invitations Inbox</span>
+                </div>
+                ${pendingInvsCount > 0 ? `<span class="px-1.5 py-0.2 rounded-full bg-primary/20 text-primary text-[10px] font-jetbrains font-bold">${pendingInvsCount}</span>` : ''}
+              </button>
+
               <div class="border-t border-border-subtle my-1"></div>
               <button id="signout-btn" class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-body-sm text-status-defect hover:bg-status-defect-surface transition-colors text-left">
                 <span class="material-symbols-outlined text-[16px]">logout</span>
@@ -263,6 +287,15 @@ function renderShell(contentRenderer) {
 
   // Quick search handler
   document.getElementById('quick-search-btn')?.addEventListener('click', openQuickSearchModal);
+
+  // Central Invitation Inbox handlers
+  document.getElementById('inbox-invitations-btn')?.addEventListener('click', () => {
+    openInvitationsInboxModal(() => renderShell(contentRenderer));
+  });
+  document.getElementById('menu-inbox-btn')?.addEventListener('click', () => {
+    openInvitationsInboxModal(() => renderShell(contentRenderer));
+  });
+
 
   // Explicit sidebar navigation click handler
   document.querySelectorAll('.nav-item').forEach(item => {
@@ -391,7 +424,129 @@ function openQuickSearchModal() {
   });
 }
 
+export function openInvitationsInboxModal(onChanged) {
+  const user = store.currentUser;
+  if (!user) return;
+  const invs = store.getUserInvitations(user.email);
+  const nowMs = Date.now();
+  const pendingInvs = invs.filter(i => i.status === 'Pending' && new Date(i.expiresAt).getTime() > nowMs);
+  const historyInvs = invs.filter(i => i.status !== 'Pending' || new Date(i.expiresAt).getTime() <= nowMs);
+
+  showModal(`
+    <div class="space-y-4">
+      <div class="p-3.5 rounded-xl bg-surface-base border border-secondary/30 flex items-start gap-3">
+        <div class="w-8 h-8 rounded-lg bg-secondary/15 text-secondary flex items-center justify-center shrink-0 mt-0.5">
+          <span class="material-symbols-outlined text-[20px]">mail</span>
+        </div>
+        <div class="text-[12px]">
+          <span class="font-semibold text-text-primary block text-body-sm">Central In-App Invitation Inbox</span>
+          <span class="text-text-muted">Review, accept, or decline workspace invitations for <strong class="text-text-primary">${user.email}</strong>. Accepting grants immediate role-based membership.</span>
+        </div>
+      </div>
+
+      <!-- Pending Invitations Section -->
+      <div class="space-y-2.5">
+        <div class="flex items-center justify-between text-[11px] font-jetbrains text-text-muted uppercase tracking-wider px-1">
+          <span>Pending Invitations (${pendingInvs.length})</span>
+          <span>Explicit Action Required</span>
+        </div>
+
+        ${pendingInvs.length === 0 ? `
+          <div class="p-6 rounded-xl bg-surface-base/50 border border-border-subtle text-center text-text-muted text-body-sm font-jetbrains">
+            <span class="material-symbols-outlined text-[28px] text-text-muted mb-1 block">drafts</span>
+            No pending project invitations for your account.
+          </div>
+        ` : pendingInvs.map(inv => `
+          <div class="p-4 rounded-xl bg-surface-base border border-secondary/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm hover:border-secondary transition-all">
+            <div class="space-y-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-jetbrains text-[10px] font-bold px-2 py-0.5 rounded bg-primary-container/20 text-primary">${inv.projectKey}</span>
+                <span class="font-geist text-body-md font-bold text-text-primary">${inv.projectName}</span>
+                <span class="font-jetbrains text-[10px] font-bold px-2 py-0.5 rounded bg-secondary/15 text-secondary border border-secondary/30 uppercase">${inv.role}</span>
+              </div>
+              <div class="text-[12px] text-text-muted">
+                Invited by <strong class="text-text-primary">${inv.inviterName}</strong> (${inv.inviterEmail})
+              </div>
+              <div class="text-[11px] font-jetbrains text-text-muted">
+                Expires: ${formatDate(inv.expiresAt)}
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2 self-end sm:self-center">
+              <button class="inbox-decline-btn px-3.5 py-1.5 rounded-lg bg-surface-panel hover:bg-status-defect-surface hover:text-status-defect text-text-muted text-[12px] font-medium border border-border-subtle transition-all cursor-pointer" data-id="${inv.id}" data-name="${inv.projectName}">
+                Decline
+              </button>
+              <button class="inbox-accept-btn flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-primary hover:bg-primary-fixed text-on-primary font-bold text-[12px] shadow-md shadow-primary/20 transition-all cursor-pointer" data-id="${inv.id}" data-name="${inv.projectName}" data-role="${inv.role}">
+                <span class="material-symbols-outlined text-[16px]">check</span>
+                <span>Accept</span>
+              </button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+
+      <!-- History (Accepted / Declined / Expired) -->
+      ${historyInvs.length > 0 ? `
+        <div class="pt-3 border-t border-border-subtle/70">
+          <span class="text-[11px] font-jetbrains text-text-muted uppercase block mb-2 px-1">Past Invitations (${historyInvs.length})</span>
+          <div class="max-h-36 overflow-y-auto space-y-2 pr-1">
+            ${historyInvs.map(inv => `
+              <div class="p-2.5 rounded-lg bg-surface-base/40 border border-border-subtle/50 flex items-center justify-between text-[12px]">
+                <div class="flex items-center gap-2">
+                  <span class="font-jetbrains text-[10px] text-text-muted">${inv.projectKey}</span>
+                  <span class="font-medium text-text-secondary">${inv.projectName}</span>
+                  <span class="text-text-muted">(${inv.role})</span>
+                </div>
+                <span class="font-jetbrains text-[10px] px-2 py-0.5 rounded font-semibold ${
+                  inv.status === 'Accepted' ? 'bg-status-passed-surface text-status-passed' :
+                  inv.status === 'Declined' ? 'bg-surface-panel text-text-muted' :
+                  'bg-status-defect-surface text-status-defect'
+                }">${inv.status.toUpperCase()}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
+
+      <div class="flex justify-end pt-2">
+        <button type="button" onclick="window.__closeModal()" class="px-4 py-2 rounded-lg bg-surface-panel text-text-secondary hover:bg-surface-elevated text-body-sm">Close</button>
+      </div>
+    </div>
+  `, { title: 'Workspace Invitations Inbox' });
+
+  // Attach inbox action listeners
+  document.querySelectorAll('.inbox-accept-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const invId = btn.dataset.id;
+      const res = store.acceptInvitation(invId);
+      if (res.error) {
+        showToast(res.error, 'error');
+      } else {
+        closeModal();
+        showToast(`Accepted invitation to join ${btn.dataset.name}!`, 'success');
+        if (onChanged) onChanged();
+      }
+    });
+  });
+
+  document.querySelectorAll('.inbox-decline-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const invId = btn.dataset.id;
+      showConfirm(`Decline invitation to join "${btn.dataset.name}"?`, () => {
+        const res = store.declineInvitation(invId);
+        if (res.error) {
+          showToast(res.error, 'error');
+        } else {
+          showToast('Invitation declined.', 'info');
+          openInvitationsInboxModal(onChanged);
+        }
+      }, { title: 'Decline Invitation', destructive: true, confirmText: 'Decline' });
+    });
+  });
+}
+
 // Global Ctrl+K shortcut
+
 window.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault();
@@ -401,6 +556,26 @@ window.addEventListener('keydown', (e) => {
 
 function route() {
   const hash = window.location.hash || '#/dashboard';
+
+  // Handle Secure Invitation Links (#/invite?token=... or #/invite/...)
+  if (hash.startsWith('#/invite')) {
+    let token = '';
+    if (hash.includes('?token=')) {
+      token = hash.split('?token=')[1].split('&')[0];
+    } else if (hash.startsWith('#/invite/')) {
+      token = hash.replace('#/invite/', '').split('?')[0];
+    } else {
+      token = sessionStorage.getItem('pending_invite_token') || '';
+    }
+
+    if (store.currentUser) {
+      renderShell((container) => renderInvite(container, token));
+    } else {
+      renderInvite(app, token);
+    }
+    return;
+  }
+
   const routeObj = ROUTES[hash];
 
   // If unauthenticated and route is private, redirect to login
@@ -409,8 +584,13 @@ function route() {
     return;
   }
 
-  // If already authenticated and trying to view login/register, go to dashboard
+  // If already authenticated and trying to view login/register, check pending invite or go to dashboard
   if (store.currentUser && routeObj?.public) {
+    const pendingToken = sessionStorage.getItem('pending_invite_token');
+    if (pendingToken) {
+      window.location.hash = `#/invite?token=${pendingToken}`;
+      return;
+    }
     window.location.hash = '#/dashboard';
     return;
   }
@@ -422,10 +602,10 @@ function route() {
       renderShell(routeObj.render);
     }
   } else {
-    // Default fallback
     window.location.hash = '#/dashboard';
   }
 }
+
 
 window.addEventListener('hashchange', route);
 window.addEventListener('DOMContentLoaded', route);

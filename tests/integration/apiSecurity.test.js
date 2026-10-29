@@ -139,5 +139,118 @@ export async function runApiSecurityTests() {
   assert.strictEqual(duplicateAddRes.status, 409, 'Duplicate member addition must return 409 Conflict');
   console.log('✓ Duplicate team member addition rejected with 409 Conflict');
 
-  console.log('✓ All 6 API Security & Project Isolation integration tests PASSED!\n');
+  // 7. Project Invitations Security, Inbox & Accept/Decline Workflow
+  console.log('Testing: Project Invitations Security, Central Inbox & Accept/Decline Flow...');
+  // A. Non-owner cannot create invitation (e.g. usr-dev or usr-viewer)
+  const nonOwnerInviteRes = await request('/api/v1/projects/proj-001/invitations', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer usr-dev' },
+    body: { email: 'invitee@secure.io', role: 'Tester' }
+  });
+  assert.strictEqual(nonOwnerInviteRes.status, 403, 'Non-owner inviting must return 403');
+  assert.strictEqual(nonOwnerInviteRes.body.error.code, 'FORBIDDEN');
+
+  // B. Owner creates invitation for invitee@secure.io
+  const inviteRes = await request('/api/v1/projects/proj-001/invitations', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${ownerToken}` },
+    body: { email: 'invitee@secure.io', role: 'Tester' }
+  });
+  assert.strictEqual(inviteRes.status, 201, 'Owner creating invitation must return 201');
+  const invitation = inviteRes.body.data;
+  assert.strictEqual(invitation.status, 'Pending');
+  assert.strictEqual(invitation.role, 'Tester');
+  assert.ok(invitation.token, 'Must return secure token');
+
+  // C. Duplicate pending invitation rejected
+  const dupInviteRes = await request('/api/v1/projects/proj-001/invitations', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${ownerToken}` },
+    body: { email: 'invitee@secure.io', role: 'Tester' }
+  });
+  assert.strictEqual(dupInviteRes.status, 409, 'Duplicate pending invitation must return 409 Conflict');
+
+  // D. Public/Authenticated Token Preview
+  const tokenPreviewRes = await request(`/api/v1/invitations/token/${invitation.token}`);
+  assert.strictEqual(tokenPreviewRes.status, 200);
+  assert.strictEqual(tokenPreviewRes.body.data.projectKey, 'DEV');
+  assert.strictEqual(tokenPreviewRes.body.data.role, 'Tester');
+
+  // Register invitee user account
+  const inviteeRegRes = await request('/api/v1/auth/register', {
+    method: 'POST',
+    body: { name: 'Invitee User', email: 'invitee@secure.io', password: 'password123' }
+  });
+  assert.strictEqual(inviteeRegRes.status, 201);
+  const inviteeToken = inviteeRegRes.body.data.id;
+
+  // E. Central In-App Inbox retrieval
+  const myInvsRes = await request('/api/v1/invitations/my', {
+    headers: { 'Authorization': `Bearer ${inviteeToken}` }
+  });
+  assert.strictEqual(myInvsRes.status, 200);
+  assert.ok(myInvsRes.body.data.some(i => i.id === invitation.id && i.status === 'Pending'));
+
+  // F. Identity Mismatch Denial (Outsider tries to accept invitee's invitation)
+  const mismatchAcceptRes = await request(`/api/v1/invitations/${invitation.id}/accept`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${outsiderToken}` }
+  });
+  assert.strictEqual(mismatchAcceptRes.status, 403, 'Accepting invitation with wrong identity must return 403 Forbidden');
+  assert.strictEqual(mismatchAcceptRes.body.error.code, 'FORBIDDEN');
+
+  // G. Decline Flow Verification (Decline must NOT create membership)
+  const declineRes = await request(`/api/v1/invitations/${invitation.id}/decline`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${inviteeToken}` }
+  });
+  assert.strictEqual(declineRes.status, 200, 'Declining invitation must succeed');
+  assert.strictEqual(declineRes.body.data.invitation.status, 'Declined');
+
+  // Verify invitee is NOT a member after declining
+  const membersAfterDecline = await request('/api/v1/projects/proj-001/members', {
+    headers: { 'Authorization': `Bearer ${ownerToken}` }
+  });
+  assert.strictEqual(
+    membersAfterDecline.body.data.some(m => m.userEmail.toLowerCase() === 'invitee@secure.io'),
+    false,
+    'Declining must NOT add user to project members'
+  );
+
+  // H. Accept Flow Verification (Create new invite, accept, verify membership created)
+  const secondInviteRes = await request('/api/v1/projects/proj-001/invitations', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${ownerToken}` },
+    body: { email: 'invitee@secure.io', role: 'Developer' }
+  });
+  assert.strictEqual(secondInviteRes.status, 201);
+  const secondInv = secondInviteRes.body.data;
+
+  const acceptRes = await request(`/api/v1/invitations/${secondInv.id}/accept`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${inviteeToken}` }
+  });
+  assert.strictEqual(acceptRes.status, 200, 'Accepting invitation must succeed');
+  assert.strictEqual(acceptRes.body.data.membership.role, 'Developer');
+
+  // Verify invitee IS now an active member
+  const membersAfterAccept = await request('/api/v1/projects/proj-001/members', {
+    headers: { 'Authorization': `Bearer ${ownerToken}` }
+  });
+  assert.ok(
+    membersAfterAccept.body.data.some(m => m.userEmail.toLowerCase() === 'invitee@secure.io' && m.role === 'Developer'),
+    'Accepting invitation must add user to project members'
+  );
+
+  // I. Cannot re-accept already accepted invitation
+  const reAcceptRes = await request(`/api/v1/invitations/${secondInv.id}/accept`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${inviteeToken}` }
+  });
+  assert.strictEqual(reAcceptRes.status, 400, 'Re-accepting non-pending invitation must return 400');
+
+  console.log('✓ Project invitations security, identity verification, inbox & accept/decline flows confirmed');
+
+  console.log('✓ All 7 API Security & Project Isolation integration tests PASSED!\n');
 }
+
