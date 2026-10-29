@@ -118,7 +118,9 @@ export function checkRateLimit(key, limit = 10, windowMs = 60000) {
 
 function setCorsHeaders(res, origin) {
   const allowed = ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:4000', 'http://localhost:3000'];
-  const allowOrigin = (origin && allowed.includes(origin)) ? origin : '*';
+  if (process.env.CLIENT_URL) allowed.push(process.env.CLIENT_URL);
+  const isVercel = origin && (origin.endsWith('.vercel.app') || origin.includes('vercel.app'));
+  const allowOrigin = (origin && (allowed.includes(origin) || isVercel)) ? origin : (allowed.includes(origin) ? origin : '*');
   res.setHeader('Access-Control-Allow-Origin', allowOrigin);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cookie, X-CSRF-Token');

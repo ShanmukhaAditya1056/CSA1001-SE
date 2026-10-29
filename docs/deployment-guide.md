@@ -52,7 +52,56 @@ docker compose down
 
 ---
 
-## 4. Troubleshooting & FAQ
+## 4. Cloud Deployment (Vercel & Render)
+
+DevTrack is architected for seamless cloud deployment:
+- **Frontend SPA:** Deployed on **Vercel** with global edge CDN, automatic SPA route rewriting (`vercel.json`), and instant HTTPS.
+- **Backend API:** Deployed on **Render** as a high-availability Node.js Web Service (`render.yaml`).
+
+### Deploying the Frontend to Vercel
+
+1. Log in to your [Vercel Dashboard](https://vercel.com).
+2. Click **Add New...** &rarr; **Project**.
+3. Import the GitHub repository: `ShanmukhaAditya1056/CSA1001-SE`.
+4. Configure Project Settings:
+   - **Framework Preset:** `Vite`
+   - **Root Directory:** `./`
+   - **Build Command:** `npm run build`
+   - **Output Directory:** `dist`
+5. Add Environment Variables in the Vercel Project Settings:
+   - `VITE_FIREBASE_API_KEY`: *(Your Firebase Web API Key)*
+   - `VITE_FIREBASE_AUTH_DOMAIN`: `devtrack-b125c.firebaseapp.com`
+   - `VITE_FIREBASE_PROJECT_ID`: `devtrack-b125c`
+   - `VITE_FIREBASE_STORAGE_BUCKET`: `devtrack-b125c.firebasestorage.app`
+   - `VITE_FIREBASE_MESSAGING_SENDER_ID`: `176906416273`
+   - `VITE_FIREBASE_APP_ID`: `1:176906416273:web:801cf5a06737a8c2eb8f30`
+   - `VITE_FIREBASE_MEASUREMENT_ID`: `G-1T9NKXXPE9`
+6. Click **Deploy**. Vercel will build the frontend and provide a live URL (`https://<project-name>.vercel.app`).
+
+### Deploying the Backend to Render
+
+1. Log in to your [Render Dashboard](https://dashboard.render.com).
+2. Click **New +** &rarr; **Web Service**.
+3. Connect your repository: `ShanmukhaAditya1056/CSA1001-SE`.
+4. Configure Web Service Settings:
+   - **Name:** `devtrack-api`
+   - **Region:** Any preferred region (e.g. Oregon, Frankfurt, Singapore)
+   - **Branch:** `main`
+   - **Root Directory:** `./`
+   - **Runtime:** `Node`
+   - **Build Command:** `npm install`
+   - **Start Command:** `npm start` (or `node server/src/server.js`)
+   - **Instance Type:** `Free`
+5. Add Environment Variables in Render:
+   - `NODE_ENV`: `production`
+   - `PORT`: `10000` (or leave default, Render sets this automatically)
+   - `CLIENT_URL`: `https://<your-vercel-domain>.vercel.app`
+   - `JWT_SECRET`: *(A long random secret string)*
+6. Click **Create Web Service**. Render will provision and launch the backend at `https://devtrack-api.onrender.com`.
+
+---
+
+## 5. Troubleshooting & FAQ
 
 ### Port 5173 or 5432 Already in Use
 If another service is using port 5173:
@@ -68,3 +117,4 @@ docker compose exec postgres pg_isready -U devtrack -d devtrack
 
 ### Resetting Seed Data
 To restore factory default demo users and lifecycle records, open the web app, navigate to **Settings & Audit** (`#/settings`), and click **"Reset Data to Initial Seed State"**.
+
