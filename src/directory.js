@@ -57,7 +57,7 @@ export function describeDirectoryError(err) {
     return 'Firestore denied access. Publish firestore.rules in the Firebase Console (Firestore > Rules).';
   }
   if (code.includes('unavailable') || raw.includes('offline') || raw.includes('unavailable')) {
-    return 'Cannot reach Firestore (offline, or the network/firewall is blocking it).';
+    return 'Cannot reach Firestore. Turn off ad-blocking or privacy extensions for this site, or try another network (e.g. a mobile hotspot).';
   }
   return err?.message || String(err);
 }

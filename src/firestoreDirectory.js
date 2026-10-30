@@ -14,8 +14,10 @@ function db() {
   const auth = getFirebaseAuth();
   if (!auth) throw new Error('Firebase is not initialized');
   try {
+    // Campus/corporate proxies often break Firestore's streaming transport;
+    // plain long-polling gets through them reliably.
     cachedDb = initializeFirestore(auth.app, {
-      experimentalAutoDetectLongPolling: true
+      experimentalForceLongPolling: true
     });
   } catch {
     cachedDb = getFirestore(auth.app);
