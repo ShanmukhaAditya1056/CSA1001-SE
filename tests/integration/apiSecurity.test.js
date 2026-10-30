@@ -20,6 +20,12 @@ async function request(path, options = {}) {
   return { status: res.status, headers: res.headers, body };
 }
 
+async function login(email, password = 'password123') {
+  const res = await request('/api/v1/auth/login', { method: 'POST', body: { email, password } });
+  assert.strictEqual(res.status, 200, `Login failed for ${email}`);
+  return res.body.data.token;
+}
+
 export async function runApiSecurityTests() {
   console.log('\n--- [INTEGRATION TESTS] API Security, Rate Limiting & Project Isolation ---');
 
@@ -58,11 +64,22 @@ export async function runApiSecurityTests() {
   // Reset rate limiter & db for subsequent tests
   await request('/api/v1/test/reset', { method: 'POST' });
 
+  // Seeded accounts authenticate with real session tokens
+  const ownerToken = await login('lead@devtrack.io');
+  const devToken = await login('dev@devtrack.io');
+  const testerToken = await login('qa@devtrack.io');
+  const viewerToken = await login('viewer@devtrack.io');
+
   // 3. Project Isolation & Access Control
   console.log('Testing: Unauthenticated Access Denial (401)...');
   const unauthRes = await request('/api/v1/projects/proj-001/requirements');
   assert.strictEqual(unauthRes.status, 401, 'Unauthenticated request must return 401');
-  console.log('✓ Unauthenticated access denied with 401 Unauthorized');
+  // A raw user id or email is not a credential
+  const spoofRes = await request('/api/v1/projects/proj-001/requirements', { headers: { 'Authorization': 'Bearer usr-admin' } });
+  assert.strictEqual(spoofRes.status, 401, 'Bearer <userId> must not authenticate');
+  const spoofEmailRes = await request('/api/v1/projects/proj-001/requirements', { headers: { 'Authorization': 'Bearer lead@devtrack.io' } });
+  assert.strictEqual(spoofEmailRes.status, 401, 'Bearer <email> must not authenticate');
+  console.log('✓ Unauthenticated and spoofed-identity access denied with 401 Unauthorized');
 
   console.log('Testing: Cross-Project Access Denial (403 for Non-Member)...');
   // Register an outsider user
@@ -71,7 +88,8 @@ export async function runApiSecurityTests() {
     body: { name: 'Outsider User', email: 'outsider@othercorp.com', password: 'password123' }
   });
   assert.strictEqual(outsiderRes.status, 201);
-  const outsiderToken = outsiderRes.body.data.id;
+  assert.strictEqual(outsiderRes.body.data.password, undefined, 'Password must never be returned');
+  const outsiderToken = outsiderRes.body.data.token;
 
   // Outsider attempts to access proj-001
   const crossProjectRes = await request('/api/v1/projects/proj-001/requirements', {
@@ -83,7 +101,6 @@ export async function runApiSecurityTests() {
 
   // 4. Viewer Role Write Denial
   console.log('Testing: Viewer Role Write Denial (Read-Only Enforcement)...');
-  const viewerToken = 'usr-viewer'; // seeded with Viewer role on proj-001
   const viewerWriteRes = await request('/api/v1/projects/proj-001/requirements', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${viewerToken}` },
@@ -91,11 +108,29 @@ export async function runApiSecurityTests() {
   });
   assert.strictEqual(viewerWriteRes.status, 403, 'Viewer write operation must return 403');
   assert.strictEqual(viewerWriteRes.body.error.code, 'FORBIDDEN');
-  console.log('✓ Viewer role write operation blocked with 403 Forbidden');
+  // Role matrix: Testers cannot author requirements, Developers cannot cut releases
+  const testerReqRes = await request('/api/v1/projects/proj-001/requirements', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${testerToken}` },
+    body: { title: 'Tester-authored requirement', priority: 'Must' }
+  });
+  assert.strictEqual(testerReqRes.status, 403, 'Tester requirement authoring must return 403');
+  const devReleaseRes = await request('/api/v1/projects/proj-001/releases', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${devToken}` },
+    body: { name: 'v9.9.9 — Unapproved' }
+  });
+  assert.strictEqual(devReleaseRes.status, 403, 'Developer cutting a release must return 403');
+  const badPriorityRes = await request('/api/v1/projects/proj-001/requirements', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${devToken}` },
+    body: { title: 'Bad priority', priority: 'Optional' }
+  });
+  assert.strictEqual(badPriorityRes.status, 400, 'Invalid MoSCoW priority must return 400');
+  console.log('✓ Viewer role write operation blocked with 403 Forbidden; role matrix enforced');
 
   // 5. Cross-Project Referential Integrity Enforcement
   console.log('Testing: Cross-Project Link Prevention (Referential Integrity)...');
-  const devToken = 'usr-dev'; // Developer on proj-001
   const invalidLinkRes = await request('/api/v1/projects/proj-001/tasks', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${devToken}` },
@@ -106,11 +141,22 @@ export async function runApiSecurityTests() {
   });
   assert.strictEqual(invalidLinkRes.status, 400, 'Cross-project requirement link must return 400 Bad Request');
   assert.strictEqual(invalidLinkRes.body.error.code, 'INVALID_RELATION');
+  const invalidBugLinkRes = await request('/api/v1/projects/proj-001/bugs', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${testerToken}` },
+    body: { title: 'Bug linked to foreign requirement', severity: 'High', relatedRequirementId: 'foreign-req-999' }
+  });
+  assert.strictEqual(invalidBugLinkRes.status, 400, 'Cross-project bug link must return 400');
+  const passedRunBugRes = await request('/api/v1/projects/proj-001/bugs', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${testerToken}` },
+    body: { title: 'Bug against a passing run', severity: 'Low', relatedTestRunId: 'tr-001' }
+  });
+  assert.strictEqual(passedRunBugRes.status, 400, 'Defects may only link to Failed test runs');
   console.log('✓ Cross-project relational corruption blocked with 400 Bad Request');
 
   // 6. Verified User Team Member Enforcement
   console.log('Testing: Team Member Addition - Verified Account Requirement...');
-  const ownerToken = 'usr-admin';
   // Try adding email that does not have an account
   const unverifiedAddRes = await request('/api/v1/projects/proj-001/members', {
     method: 'POST',
@@ -119,6 +165,7 @@ export async function runApiSecurityTests() {
   });
   assert.strictEqual(unverifiedAddRes.status, 404, 'Adding unverified account must return 404');
   assert.strictEqual(unverifiedAddRes.body.error.code, 'USER_NOT_FOUND');
+  assert.strictEqual(unverifiedAddRes.body.error.message, 'Only users who have already signed up can be added to the team.');
   console.log('✓ Adding unverified non-registered email rejected with 404');
 
   // Add existing verified user (outsider registered earlier)
@@ -142,7 +189,7 @@ export async function runApiSecurityTests() {
   // Only project owners may add team members (Developer must be denied)
   const nonOwnerAddRes = await request('/api/v1/projects/proj-001/members', {
     method: 'POST',
-    headers: { 'Authorization': 'Bearer usr-dev' },
+    headers: { 'Authorization': `Bearer ${devToken}` },
     body: { email: 'outsider@othercorp.com', role: 'Developer' }
   });
   assert.strictEqual(nonOwnerAddRes.status, 403, 'Non-owner adding a member must return 403');
@@ -154,7 +201,7 @@ export async function runApiSecurityTests() {
   // A. Non-owner cannot create invitation (e.g. usr-dev or usr-viewer)
   const nonOwnerInviteRes = await request('/api/v1/projects/proj-001/invitations', {
     method: 'POST',
-    headers: { 'Authorization': 'Bearer usr-dev' },
+    headers: { 'Authorization': `Bearer ${devToken}` },
     body: { email: 'invitee@secure.io', role: 'Tester' }
   });
   assert.strictEqual(nonOwnerInviteRes.status, 403, 'Non-owner inviting must return 403');
@@ -192,7 +239,7 @@ export async function runApiSecurityTests() {
     body: { name: 'Invitee User', email: 'invitee@secure.io', password: 'password123' }
   });
   assert.strictEqual(inviteeRegRes.status, 201);
-  const inviteeToken = inviteeRegRes.body.data.id;
+  const inviteeToken = inviteeRegRes.body.data.token;
 
   // E. Central In-App Inbox retrieval
   const myInvsRes = await request('/api/v1/invitations/my', {
@@ -252,12 +299,31 @@ export async function runApiSecurityTests() {
     'Accepting invitation must add user to project members'
   );
 
+  // J. Forged self-describing token (attacker grants themselves Owner) is rejected
+  const forgedPayload = Buffer.from(JSON.stringify({
+    id: 'inv-forged', pid: 'proj-001', pname: 'DevTrack Platform', pkey: 'DEV',
+    iname: 'Lead Architect', iemail: 'lead@devtrack.io', email: 'outsider@othercorp.com',
+    role: 'Owner', exp: new Date(Date.now() + 86400000).toISOString(), iat: new Date().toISOString()
+  })).toString('base64url');
+  for (const forged of [`inv_${forgedPayload}`, `inv_${forgedPayload}.invalidsignature`]) {
+    const forgedRes = await request(`/api/v1/invitations/${forged}/accept`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${outsiderToken}` }
+    });
+    assert.strictEqual(forgedRes.status, 404, 'Unsigned or tampered invitation tokens must be rejected');
+  }
+
   // I. Cannot re-accept already accepted invitation
   const reAcceptRes = await request(`/api/v1/invitations/${secondInv.id}/accept`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${inviteeToken}` }
   });
   assert.strictEqual(reAcceptRes.status, 400, 'Re-accepting non-pending invitation must return 400');
+
+  const auditRes = await request('/api/v1/projects/proj-001/audit', { headers: { 'Authorization': `Bearer ${viewerToken}` } });
+  assert.strictEqual(auditRes.status, 200);
+  assert.strictEqual(auditRes.body.data.chainValid, true, 'Audit hash chain must verify');
+  assert.ok(auditRes.body.data.entries.some(e => e.type === 'INVITATION_ACCEPTED'), 'Membership changes must be audited');
 
   console.log('✓ Project invitations security, identity verification, inbox & accept/decline flows confirmed');
 

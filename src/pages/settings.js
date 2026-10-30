@@ -218,7 +218,11 @@ export function renderSettings(container) {
     const description = document.getElementById('set-desc').value.trim();
     const endDate = document.getElementById('set-end').value || null;
 
-    store.updateProject(project.id, { name, description, endDate });
+    const res = store.updateProject(project.id, { name, description, endDate });
+    if (res.error) {
+      showToast(res.error, 'error');
+      return;
+    }
     showToast('Project settings saved successfully!', 'success');
   });
 
@@ -236,6 +240,10 @@ export function renderSettings(container) {
 
   // Attach Reset Seed Data
   container.querySelector('#reset-seed-btn')?.addEventListener('click', () => {
+    if (store.getUserRole(project.id) !== 'Owner') {
+      showToast('Forbidden: Only project owners can reset workspace data.', 'error');
+      return;
+    }
     showConfirm('This will reset all requirements, tasks, test runs, and defects back to factory seed data. Are you sure?', () => {
       store.resetData();
       showToast('Workspace reset to factory default data!', 'info');

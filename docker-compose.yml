@@ -26,7 +26,6 @@ services:
     container_name: devtrack-app
     restart: unless-stopped
     ports:
-      - "5173:5173"
       - "4000:4000"
     environment:
       NODE_ENV: production

@@ -26,8 +26,8 @@ export function renderDashboard(container) {
 
   // Requirements metrics
   const totalReqs = reqs.length;
-  const completedReqs = reqs.filter(r => r.status === 'Completed').length;
-  const inProgReqs = reqs.filter(r => r.status === 'In Progress').length;
+  const completedReqs = reqs.filter(r => r.status === 'Implemented').length;
+  const inProgReqs = reqs.filter(r => r.status === 'In Development').length;
   const draftReqs = reqs.filter(r => r.status === 'Draft').length;
   const mCount = reqs.filter(r => r.priority === 'Must').length;
   const sCount = reqs.filter(r => r.priority === 'Should').length;
@@ -43,10 +43,10 @@ export function renderDashboard(container) {
   const passRate = totalRuns > 0 ? Math.round((passedRuns / totalRuns) * 100) : 100;
 
   // Bug metrics
-  const openBugs = bugs.filter(b => !['Fixed', 'Closed'].includes(b.status));
-  const critBugs = bugs.filter(b => b.severity === 'Critical' && !['Fixed', 'Closed'].includes(b.status)).length;
-  const highBugs = bugs.filter(b => b.severity === 'High' && !['Fixed', 'Closed'].includes(b.status)).length;
-  const medBugs = bugs.filter(b => b.severity === 'Medium' && !['Fixed', 'Closed'].includes(b.status)).length;
+  const openBugs = bugs.filter(b => !['Fixed', 'Verified', 'Closed'].includes(b.status));
+  const critBugs = bugs.filter(b => b.severity === 'Critical' && !['Fixed', 'Verified', 'Closed'].includes(b.status)).length;
+  const highBugs = bugs.filter(b => b.severity === 'High' && !['Fixed', 'Verified', 'Closed'].includes(b.status)).length;
+  const medBugs = bugs.filter(b => b.severity === 'Medium' && !['Fixed', 'Verified', 'Closed'].includes(b.status)).length;
 
   // Active Sprint
   const sprintTasks = activeSprint ? tasks.filter(t => t.sprintId === activeSprint.id) : [];
@@ -56,7 +56,7 @@ export function renderDashboard(container) {
   const sprintProgress = sprintTotalPts > 0 ? Math.round((sprintDonePts / sprintTotalPts) * 100) : 0;
 
   // Next Release
-  const targetRelease = releases.find(r => r.status === 'Planned') || releases[0] || null;
+  const targetRelease = releases.find(r => r.status !== 'Released') || releases[0] || null;
 
   // Real-time trace samples for the E2E lifecycle ribbon
   const sampleReq = reqs[0] || null;
@@ -146,10 +146,10 @@ export function renderDashboard(container) {
             </div>
             <div class="flex items-baseline gap-2 mb-2">
               <span class="font-geist text-headline-xl font-bold text-text-primary">${totalReqs}</span>
-              <span class="font-jetbrains text-mono-md text-text-muted">${completedReqs} Completed</span>
+              <span class="font-jetbrains text-mono-md text-text-muted">${completedReqs} Implemented</span>
             </div>
             <div class="w-full bg-surface-base h-2 rounded-full overflow-hidden flex mb-4">
-              <div class="bg-status-passed h-full" style="width: ${totalReqs ? (completedReqs / totalReqs) * 100 : 0}%" title="Completed"></div>
+              <div class="bg-status-passed h-full" style="width: ${totalReqs ? (completedReqs / totalReqs) * 100 : 0}%" title="Implemented"></div>
               <div class="bg-status-in-progress h-full" style="width: ${totalReqs ? (inProgReqs / totalReqs) * 100 : 0}%" title="In Progress"></div>
               <div class="bg-text-muted h-full" style="width: ${totalReqs ? (draftReqs / totalReqs) * 100 : 0}%" title="Draft"></div>
             </div>
@@ -283,7 +283,7 @@ export function renderDashboard(container) {
               <div>
                 <div class="flex items-center justify-between mb-2">
                   <span class="px-2 py-0.5 rounded font-jetbrains text-mono-md bg-secondary/15 text-secondary font-semibold">${sampleReq ? (sampleReq.key || sampleReq.id) : 'REQ-SPEC'}</span>
-                  <span class="font-jetbrains text-[10px] px-2 py-0.5 rounded ${sampleReq?.status === 'Completed' ? 'bg-status-passed-surface text-status-passed' : 'bg-status-in-progress-surface text-status-in-progress'} font-semibold">
+                  <span class="font-jetbrains text-[10px] px-2 py-0.5 rounded ${sampleReq?.status === 'Implemented' ? 'bg-status-passed-surface text-status-passed' : 'bg-status-in-progress-surface text-status-in-progress'} font-semibold">
                     ${sampleReq ? sampleReq.status.toUpperCase() : 'NO SPECS'}
                   </span>
                 </div>
@@ -567,6 +567,7 @@ function openNewRequirementModal(projectId) {
     const acceptanceCriteria = document.getElementById('req-ac').value.trim();
 
     const res = store.createRequirement(projectId, { title, description, priority, status, acceptanceCriteria });
+    if (res.error) showToast(res.error, 'error');
     if (res.data) {
       closeModal();
       showToast('Requirement created successfully!', 'success');
@@ -647,11 +648,11 @@ function openNewDefectModal(projectId) {
       description,
       severity,
       priority,
-      status: 'Open',
       relatedRequirementId,
       relatedTaskId
     });
 
+    if (res.error) showToast(res.error, 'error');
     if (res.data) {
       closeModal();
       showToast('Defect logged successfully!', 'success');
@@ -677,7 +678,6 @@ function openNewTestRunModal(projectId) {
           <option value="Passed">Passed</option>
           <option value="Failed">Failed</option>
           <option value="Blocked">Blocked</option>
-          <option value="Skipped">Skipped</option>
         </select>
       </div>
       <div>
@@ -699,6 +699,7 @@ function openNewTestRunModal(projectId) {
     const notes = document.getElementById('run-notes').value.trim();
 
     const res = store.createTestRun(testCaseId, { result, notes });
+    if (res.error) showToast(res.error, 'error');
     if (res.data) {
       closeModal();
       showToast(`Test run recorded: ${result}`, result === 'Passed' ? 'success' : 'error');

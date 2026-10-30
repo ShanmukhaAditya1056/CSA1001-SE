@@ -36,7 +36,7 @@ export function renderProjects(container) {
           const reqs = store.getRequirements(proj.id);
           const tasks = store.getTasks(proj.id);
           const userRole = store.getUserRole(proj.id) || 'Member';
-          const completedReqs = reqs.filter(r => r.status === 'Completed').length;
+          const completedReqs = reqs.filter(r => r.status === 'Implemented').length;
           const progress = reqs.length > 0 ? Math.round((completedReqs / reqs.length) * 100) : 0;
 
           return `

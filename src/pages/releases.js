@@ -1,6 +1,7 @@
 // DevTrack Releases & Traceability Matrix
 import { store } from '../store.js';
 import { statusChip, priorityChip, severityChip, formatDate, showToast, showModal, closeModal } from '../ui.js';
+import { BUG_RESOLVED_STATES } from '../rules.js';
 
 export function renderReleases(container) {
   const project = store.getActiveProject();
@@ -14,7 +15,7 @@ export function renderReleases(container) {
   const totalReqs = traceability.length;
   const readyCount = traceability.filter(row => {
     const hasPassingRun = row.testRuns.some(r => r.result === 'Passed');
-    const hasUnresolvedBug = row.bugs.some(b => ['Open', 'In Progress'].includes(b.status));
+    const hasUnresolvedBug = row.bugs.some(b => !BUG_RESOLVED_STATES.includes(b.status));
     return hasPassingRun && !hasUnresolvedBug;
   }).length;
 
@@ -52,7 +53,7 @@ export function renderReleases(container) {
           <div class="text-[11px] font-jetbrains text-text-muted uppercase mb-1">Total Release Versions</div>
           <div class="font-geist text-headline-lg font-bold text-text-primary">${releases.length}</div>
           <div class="text-[11px] text-text-secondary mt-1 font-jetbrains">
-            ${releases.filter(r => r.status === 'Released').length} Shipped • ${releases.filter(r => r.status === 'Planned').length} Planned
+            ${releases.filter(r => r.status === 'Released').length} Shipped • ${releases.filter(r => r.status !== 'Released').length} Planned
           </div>
         </div>
 
@@ -102,8 +103,8 @@ export function renderReleases(container) {
                   </div>
 
                   ${!isReleased ? `
-                    <button class="mark-released-btn px-3 py-1 rounded bg-status-passed-surface hover:bg-status-passed/20 text-status-passed font-semibold transition-all border border-status-passed/30" data-id="${rel.id}">
-                      Mark Released
+                    <button class="mark-released-btn px-3 py-1 rounded bg-status-passed-surface hover:bg-status-passed/20 text-status-passed font-semibold transition-all border border-status-passed/30" data-id="${rel.id}" data-next="${rel.status === 'Staging' ? 'Released' : 'Staging'}">
+                      ${rel.status === 'Staging' ? 'Mark Released' : 'Promote to Staging'}
                     </button>
                   ` : ''}
                 </div>
@@ -242,8 +243,19 @@ export function renderReleases(container) {
   container.querySelectorAll('.mark-released-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const relId = btn.dataset.id;
-      store.updateRelease(relId, { status: 'Released' });
-      showToast('Release cut marked as Released to production!', 'success');
+      const next = btn.dataset.next;
+      // Release gate: production cut is blocked while Critical/High defects are unresolved.
+      const openBlockers = store.getBugs(project.id).filter(b => !BUG_RESOLVED_STATES.includes(b.status) && ['Critical', 'High'].includes(b.severity)).length;
+      if (next === 'Released' && openBlockers > 0) {
+        showToast(`Release gate blocked: ${openBlockers} unresolved Critical/High defect(s).`, 'error');
+        return;
+      }
+      const res = store.updateRelease(relId, { status: next });
+      if (res.error) {
+        showToast(res.error, 'error');
+        return;
+      }
+      showToast(next === 'Released' ? 'Release cut marked as Released to production!' : 'Release promoted to Staging.', 'success');
       renderReleases(container);
     });
   });
@@ -293,7 +305,11 @@ function openReleaseModal(projectId, onSaved) {
     const targetDate = document.getElementById('rel-date').value;
     const summary = document.getElementById('rel-summary').value.trim();
 
-    store.createRelease(projectId, { name, targetDate, summary, status: 'Planned' });
+    const res = store.createRelease(projectId, { name, targetDate, summary, status: 'Planning' });
+    if (res.error) {
+      showToast(res.error, 'error');
+      return;
+    }
     closeModal();
     showToast('Release milestone created!', 'success');
     if (onSaved) onSaved();

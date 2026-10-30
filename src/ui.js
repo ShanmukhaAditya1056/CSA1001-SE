@@ -1,6 +1,13 @@
 // DevTrack UI Utilities — toast, modal, shared components
 import { store } from './store.js';
 
+// ===== ESCAPING =====
+export function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"'`]/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;'
+  })[ch]);
+}
+
 // ===== TOAST =====
 export function showToast(message, type = 'success') {
   const container = document.getElementById('toast-container');
@@ -13,7 +20,9 @@ export function showToast(message, type = 'success') {
   const icons = { success: 'check_circle', error: 'error', info: 'info', warning: 'warning' };
   const toast = document.createElement('div');
   toast.className = `flex items-center gap-3 px-4 py-3 rounded-xl border ${colors[type]} animate-toast-in backdrop-blur-md min-w-[300px] max-w-md shadow-lg`;
-  toast.innerHTML = `<span class="material-symbols-outlined text-[20px]">${icons[type]}</span><span class="font-inter text-body-md flex-1">${message}</span><button class="material-symbols-outlined text-[16px] opacity-60 hover:opacity-100" onclick="this.parentElement.remove()">close</button>`;
+  toast.innerHTML = `<span class="material-symbols-outlined text-[20px]">${icons[type]}</span><span class="font-inter text-body-md flex-1"></span><button class="material-symbols-outlined text-[16px] opacity-60 hover:opacity-100" onclick="this.parentElement.remove()">close</button>`;
+  // Messages often echo user/invite data, so render them as text, never HTML.
+  toast.querySelector('span.flex-1').textContent = message;
   container.appendChild(toast);
   setTimeout(() => { toast.classList.add('animate-toast-out'); setTimeout(() => toast.remove(), 300); }, 4000);
 }
@@ -63,6 +72,8 @@ const statusColors = {
   'Approved': 'bg-secondary/15 text-secondary',
   'In Progress': 'bg-status-in-progress-surface text-status-in-progress',
   'Completed': 'bg-status-passed-surface text-status-passed',
+  'In Development': 'bg-status-in-progress-surface text-status-in-progress',
+  'Implemented': 'bg-status-passed-surface text-status-passed',
   'Rejected': 'bg-status-defect-surface text-status-defect',
   // Tasks
   'Backlog': 'bg-surface-elevated text-text-muted',
@@ -71,6 +82,8 @@ const statusColors = {
   'Done': 'bg-status-passed-surface text-status-passed',
   // Sprint
   'Planned': 'bg-surface-elevated text-text-secondary',
+  'Planning': 'bg-surface-elevated text-text-secondary',
+  'Staging': 'bg-status-release-surface text-status-release',
   'Active': 'bg-status-in-progress-surface text-status-in-progress',
   // Test
   'Passed': 'bg-status-passed-surface text-status-passed',
@@ -80,7 +93,7 @@ const statusColors = {
   // Bug
   'Open': 'bg-status-defect-surface text-status-defect',
   'Fixed': 'bg-status-passed-surface text-status-passed',
-  'Retest': 'bg-status-in-progress-surface text-status-in-progress',
+  'Verified': 'bg-status-passed-surface text-status-passed',
   'Closed': 'bg-surface-elevated text-text-muted',
   'Reopened': 'bg-status-defect-surface text-status-defect',
   // Release

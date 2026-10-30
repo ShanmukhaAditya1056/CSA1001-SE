@@ -1,6 +1,7 @@
 // DevTrack Sprint Board & Task Management
 import { store } from '../store.js';
 import { priorityChip, statusChip, avatar, formatDate, showToast, showModal, closeModal } from '../ui.js';
+import { TASK_TRANSITIONS, validateSprintDates } from '../rules.js';
 
 let selectedSprintId = 'ALL';
 
@@ -154,7 +155,7 @@ export function renderSprints(container) {
                         <div class="flex items-center gap-2">
                           <span class="font-jetbrains text-[10px] px-1.5 py-0.5 rounded bg-surface-elevated text-text-primary font-bold">${task.estimate || 3} pts</span>
                           <select class="task-status-select bg-surface-base text-text-primary font-jetbrains text-[10px] py-0.5 px-1 rounded border border-border-subtle focus:border-primary outline-none" data-id="${task.id}">
-                            ${columns.map(c => `<option value="${c.key}" ${c.key === task.status ? 'selected' : ''}>${c.label}</option>`).join('')}
+                            ${columns.filter(c => c.key === task.status || TASK_TRANSITIONS[task.status]?.includes(c.key)).map(c => `<option value="${c.key}" ${c.key === task.status ? 'selected' : ''}>${c.label}</option>`).join('')}
                           </select>
                         </div>
                       </div>
@@ -187,8 +188,9 @@ export function renderSprints(container) {
     sel.addEventListener('change', (e) => {
       const taskId = sel.dataset.id;
       const newStatus = e.target.value;
-      store.updateTask(taskId, { status: newStatus });
-      showToast(`Task moved to ${newStatus}`, 'info');
+      const res = store.updateTask(taskId, { status: newStatus });
+      if (res.error) showToast(res.error, 'error');
+      else showToast(`Task moved to ${newStatus}`, 'info');
       renderSprints(container);
     });
   });
@@ -292,7 +294,7 @@ function openTaskModal(projectId, defaultSprintId, onSaved) {
     const reqId = document.getElementById('task-req').value;
     const description = document.getElementById('task-desc').value.trim();
 
-    store.createTask(projectId, {
+    const res = store.createTask(projectId, {
       title,
       sprintId,
       assigneeId,
@@ -303,6 +305,10 @@ function openTaskModal(projectId, defaultSprintId, onSaved) {
       requirementIds: reqId ? [reqId] : [],
       description
     });
+    if (res.error) {
+      showToast(res.error, 'error');
+      return;
+    }
 
     closeModal();
     showToast('Task added successfully!', 'success');
@@ -352,9 +358,21 @@ function openSprintModal(projectId, onSaved) {
     const startDate = document.getElementById('sprint-start').value;
     const endDate = document.getElementById('sprint-end').value;
 
-    store.createSprint(projectId, { name, goal, startDate, endDate, status: 'Active' });
+    const dates = validateSprintDates(startDate, endDate);
+    if (!dates.valid) {
+      showToast(dates.reason, 'error');
+      return;
+    }
+    // A project may only have one Active sprint; queue new ones as Planned.
+    const hasActive = store.getSprints(projectId).some(s => s.status === 'Active');
+    const res = store.createSprint(projectId, { name, goal, startDate, endDate, status: hasActive ? 'Planned' : 'Active' });
+    if (res.error) {
+      showToast(res.error, 'error');
+      return;
+    }
+    selectedSprintId = res.data.id;
     closeModal();
-    showToast('Sprint created and active!', 'success');
+    showToast(hasActive ? 'Sprint created as Planned (another sprint is active).' : 'Sprint created and active!', 'success');
     if (onSaved) onSaved();
   });
 }

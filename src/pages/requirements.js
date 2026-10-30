@@ -112,8 +112,8 @@ export function renderRequirements(container) {
             <option value="ALL" ${currentFilterStatus === 'ALL' ? 'selected' : ''}>All Statuses</option>
             <option value="Draft" ${currentFilterStatus === 'Draft' ? 'selected' : ''}>Draft</option>
             <option value="Approved" ${currentFilterStatus === 'Approved' ? 'selected' : ''}>Approved</option>
-            <option value="In Progress" ${currentFilterStatus === 'In Progress' ? 'selected' : ''}>In Progress</option>
-            <option value="Completed" ${currentFilterStatus === 'Completed' ? 'selected' : ''}>Completed</option>
+            <option value="In Development" ${currentFilterStatus === 'In Development' ? 'selected' : ''}>In Development</option>
+            <option value="Implemented" ${currentFilterStatus === 'Implemented' ? 'selected' : ''}>Implemented</option>
             <option value="Rejected" ${currentFilterStatus === 'Rejected' ? 'selected' : ''}>Rejected</option>
           </select>
         </div>
@@ -266,8 +266,8 @@ function openRequirementModal(projectId, existingReq = null, onSaved = null) {
           <select id="modal-req-status" class="w-full bg-surface-base text-text-primary text-body-md px-3 py-2 rounded-lg border border-border-subtle focus:border-primary outline-none transition-all">
             <option value="Draft" ${existingReq?.status === 'Draft' ? 'selected' : ''}>Draft</option>
             <option value="Approved" ${existingReq?.status === 'Approved' ? 'selected' : ''}>Approved</option>
-            <option value="In Progress" ${existingReq?.status === 'In Progress' ? 'selected' : ''}>In Progress</option>
-            <option value="Completed" ${existingReq?.status === 'Completed' ? 'selected' : ''}>Completed</option>
+            <option value="In Development" ${existingReq?.status === 'In Development' ? 'selected' : ''}>In Development</option>
+            <option value="Implemented" ${existingReq?.status === 'Implemented' ? 'selected' : ''}>Implemented</option>
             <option value="Rejected" ${existingReq?.status === 'Rejected' ? 'selected' : ''}>Rejected</option>
           </select>
         </div>
@@ -311,13 +311,13 @@ function openRequirementModal(projectId, existingReq = null, onSaved = null) {
     const description = document.getElementById('modal-req-desc').value.trim();
     const acceptanceCriteria = document.getElementById('modal-req-ac').value.trim();
 
-    if (isEdit) {
-      store.updateRequirement(existingReq.id, { title, priority, status, targetRelease, description, acceptanceCriteria });
-      showToast('Requirement updated & audit record created!', 'success');
-    } else {
-      store.createRequirement(projectId, { title, priority, status, targetRelease, description, acceptanceCriteria });
-      showToast('Requirement created!', 'success');
+    const fields = { title, priority, status, targetRelease, description, acceptanceCriteria };
+    const res = isEdit ? store.updateRequirement(existingReq.id, fields) : store.createRequirement(projectId, fields);
+    if (res.error) {
+      showToast(res.error, 'error');
+      return;
     }
+    showToast(isEdit ? 'Requirement updated & audit record created!' : 'Requirement created!', 'success');
     closeModal();
     if (onSaved) onSaved();
   });

@@ -1,6 +1,7 @@
 // DevTrack Test Cases & QA Run Execution
 import { store } from '../store.js';
 import { statusChip, formatDate, formatDateTime, showToast, showModal, closeModal, avatar } from '../ui.js';
+import { TEST_TYPES } from '../rules.js';
 
 let activeTab = 'CASES'; // 'CASES' or 'RUNS'
 
@@ -255,6 +256,13 @@ function openTestCaseModal(projectId, onSaved) {
       </div>
 
       <div>
+        <label class="block text-label-md font-medium text-text-secondary mb-1">Test Type *</label>
+        <select id="tc-type" required class="w-full bg-surface-base text-text-primary text-body-md px-3 py-2 rounded-lg border border-border-subtle focus:border-primary outline-none">
+          ${TEST_TYPES.map(t => `<option value="${t}">${t}</option>`).join('')}
+        </select>
+      </div>
+
+      <div>
         <label class="block text-label-md font-medium text-text-secondary mb-1">Objective</label>
         <input type="text" id="tc-objective" placeholder="e.g. Ensure idempotency and uniqueness validations"
           class="w-full bg-surface-base text-text-primary text-body-md px-3 py-2 rounded-lg border border-border-subtle focus:border-primary outline-none" />
@@ -293,16 +301,21 @@ function openTestCaseModal(projectId, onSaved) {
     const preconditions = document.getElementById('tc-pre').value.trim();
     const steps = document.getElementById('tc-steps').value.trim();
     const expectedResult = document.getElementById('tc-expected').value.trim();
+    const type = document.getElementById('tc-type').value;
 
-    store.createTestCase(projectId, {
+    const res = store.createTestCase(projectId, {
       title,
+      type,
       requirementIds: reqId ? [reqId] : [],
       objective,
       preconditions,
       steps,
-      expectedResult,
-      status: 'Active'
+      expectedResult
     });
+    if (res.error) {
+      showToast(res.error, 'error');
+      return;
+    }
 
     closeModal();
     showToast('Test case created!', 'success');
@@ -328,7 +341,6 @@ function openExecuteRunModal(projectId, preselectedTcId, onSaved) {
           <option value="Passed" class="text-status-passed">Passed — All Assertions Verified</option>
           <option value="Failed" class="text-status-defect">Failed — Bug or Unexpected Response</option>
           <option value="Blocked" class="text-status-in-progress">Blocked — Upstream Dependency Missing</option>
-          <option value="Skipped">Skipped — Not applicable in current build</option>
         </select>
       </div>
 
@@ -351,7 +363,11 @@ function openExecuteRunModal(projectId, preselectedTcId, onSaved) {
     const result = document.getElementById('run-outcome').value;
     const notes = document.getElementById('run-notes').value.trim();
 
-    store.createTestRun(testCaseId, { result, notes });
+    const res = store.createTestRun(testCaseId, { result, notes });
+    if (res.error) {
+      showToast(res.error, 'error');
+      return;
+    }
     closeModal();
     showToast(`Test execution recorded as ${result}!`, result === 'Passed' ? 'success' : 'error');
     if (onSaved) onSaved();
@@ -413,15 +429,18 @@ function openLinkedBugModal(projectId, runId, tcId) {
     const priority = document.getElementById('lbug-pri').value;
     const stepsToReproduce = document.getElementById('lbug-steps').value.trim();
 
-    store.createBug(projectId, {
+    const res = store.createBug(projectId, {
       title,
       severity,
       priority,
-      status: 'Open',
       stepsToReproduce,
       relatedTestRunId: runId,
       relatedRequirementId: reqId
     });
+    if (res.error) {
+      showToast(res.error, 'error');
+      return;
+    }
 
     closeModal();
     showToast('Bug linked and filed in Bug Tracker!', 'success');

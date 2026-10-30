@@ -1,6 +1,7 @@
 // DevTrack Defect & Bug Tracker
 import { store } from '../store.js';
 import { severityChip, priorityChip, statusChip, formatDate, showToast, showModal, closeModal, avatar } from '../ui.js';
+import { BUG_STATUSES, BUG_TRANSITIONS } from '../rules.js';
 
 let currentFilterSev = 'ALL';
 let currentFilterStatus = 'ALL';
@@ -21,7 +22,7 @@ export function renderBugs(container) {
   const critCount = allBugs.filter(b => b.severity === 'Critical').length;
   const highCount = allBugs.filter(b => b.severity === 'High').length;
   const medCount = allBugs.filter(b => b.severity === 'Medium').length;
-  const openCount = allBugs.filter(b => !['Fixed', 'Closed'].includes(b.status)).length;
+  const openCount = allBugs.filter(b => !['Fixed', 'Verified', 'Closed'].includes(b.status)).length;
 
   let filtered = allBugs;
   if (currentFilterSev !== 'ALL') {
@@ -113,7 +114,7 @@ export function renderBugs(container) {
             <option value="Open" ${currentFilterStatus === 'Open' ? 'selected' : ''}>Open</option>
             <option value="In Progress" ${currentFilterStatus === 'In Progress' ? 'selected' : ''}>In Progress</option>
             <option value="Fixed" ${currentFilterStatus === 'Fixed' ? 'selected' : ''}>Fixed</option>
-            <option value="Retest" ${currentFilterStatus === 'Retest' ? 'selected' : ''}>Retest</option>
+            <option value="Verified" ${currentFilterStatus === 'Verified' ? 'selected' : ''}>Verified</option>
             <option value="Closed" ${currentFilterStatus === 'Closed' ? 'selected' : ''}>Closed</option>
           </select>
         </div>
@@ -187,11 +188,8 @@ export function renderBugs(container) {
                   <div class="flex items-center gap-2">
                     <span class="text-label-sm text-text-muted font-jetbrains">Status:</span>
                     <select class="bug-status-select bg-surface-base text-text-primary font-jetbrains text-body-sm py-1.5 px-2.5 rounded-lg border border-border-subtle focus:border-primary outline-none" data-id="${bug.id}">
-                      <option value="Open" ${bug.status === 'Open' ? 'selected' : ''}>Open</option>
-                      <option value="In Progress" ${bug.status === 'In Progress' ? 'selected' : ''}>In Progress</option>
-                      <option value="Fixed" ${bug.status === 'Fixed' ? 'selected' : ''}>Fixed</option>
-                      <option value="Retest" ${bug.status === 'Retest' ? 'selected' : ''}>Retest</option>
-                      <option value="Closed" ${bug.status === 'Closed' ? 'selected' : ''}>Closed</option>
+                      ${BUG_STATUSES.filter(st => st === bug.status || BUG_TRANSITIONS[bug.status]?.includes(st)).map(st =>
+                        `<option value="${st}" ${bug.status === st ? 'selected' : ''}>${st}</option>`).join('')}
                     </select>
                   </div>
                 </div>
@@ -228,8 +226,9 @@ export function renderBugs(container) {
     sel.addEventListener('change', (e) => {
       const bugId = sel.dataset.id;
       const newStatus = e.target.value;
-      store.updateBug(bugId, { status: newStatus });
-      showToast(`Defect ${bugId} marked as ${newStatus}`, 'info');
+      const res = store.updateBug(bugId, { status: newStatus });
+      if (res.error) showToast(res.error, 'error');
+      else showToast(`Defect marked as ${newStatus}`, 'info');
       renderBugs(container);
     });
   });
@@ -312,16 +311,19 @@ function openDefectModal(projectId, onSaved) {
     const assigneeId = document.getElementById('mbug-assignee').value || null;
     const stepsToReproduce = document.getElementById('mbug-steps').value.trim();
 
-    store.createBug(projectId, {
+    const res = store.createBug(projectId, {
       title,
       description: stepsToReproduce.split('\n')[0] || title,
       severity,
       priority,
-      status: 'Open',
       stepsToReproduce,
       relatedRequirementId,
       assigneeId
     });
+    if (res.error) {
+      showToast(res.error, 'error');
+      return;
+    }
 
     closeModal();
     showToast('Defect logged into tracker!', 'success');

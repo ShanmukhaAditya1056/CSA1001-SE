@@ -31,7 +31,12 @@ export async function runLifecycleFlowTests() {
   });
   assert.strictEqual(regRes.status, 201, 'User registration failed');
   const creatorUser = regRes.body.data;
-  const creatorToken = creatorUser.id;
+  const loginRes = await request('/api/v1/auth/login', {
+    method: 'POST',
+    body: { email: 'evelyn@reed-labs.io', password: 'StrongSecurePassword123!' }
+  });
+  assert.strictEqual(loginRes.status, 200, 'Login failed');
+  const creatorToken = loginRes.body.data.token;
   console.log('✓ Registered project creator:', creatorUser.email);
 
   // Step 2: Create a Project
@@ -57,6 +62,7 @@ export async function runLifecycleFlowTests() {
   });
   assert.strictEqual(devRegRes.status, 201);
   const devUser = devRegRes.body.data;
+  const devToken = devUser.token;
 
   const addMemberRes = await request(`/api/v1/projects/${project.id}/members`, {
     method: 'POST',
@@ -112,6 +118,19 @@ export async function runLifecycleFlowTests() {
   });
   assert.strictEqual(taskRes.status, 201);
   const task = taskRes.body.data;
+  // Kanban state machine: In Progress may not jump straight to Done
+  const skipRes = await request(`/api/v1/projects/${project.id}/tasks/${task.id}`, {
+    method: 'PATCH',
+    headers: { 'Authorization': `Bearer ${devToken}` },
+    body: { status: 'Done' }
+  });
+  assert.strictEqual(skipRes.status, 400, 'Skipping Review must be rejected');
+  const reviewRes = await request(`/api/v1/projects/${project.id}/tasks/${task.id}`, {
+    method: 'PATCH',
+    headers: { 'Authorization': `Bearer ${devToken}` },
+    body: { status: 'In Review' }
+  });
+  assert.strictEqual(reviewRes.status, 200);
   console.log(`✓ Sprint Task created: '${task.title}' linked to ${requirement.id}`);
 
   // Step 6: Create QA Test Case Linked to Requirement
@@ -121,6 +140,7 @@ export async function runLifecycleFlowTests() {
     headers: { 'Authorization': `Bearer ${creatorToken}` },
     body: {
       title: 'Verify UDP telemetry frame integrity under 20% packet drop',
+      type: 'Integration',
       steps: '1. Inject network packet drop\n2. Stream 1000 frames\n3. Verify frame sequence parity',
       expectedResult: 'Frame sequence numbers are contiguous and no buffer corruption occurs.',
       requirementIds: [requirement.id]
@@ -163,10 +183,21 @@ export async function runLifecycleFlowTests() {
   const bug = bugRes.body.data;
   console.log(`✓ Defect filed: [${bug.severity}] '${bug.title}' linked to test run ${testRun.id}`);
 
-  // Step 9: Fix / Remediate Bug
-  console.log('Step 9: Update bug lifecycle status to Fixed...');
-  bug.status = 'Fixed';
-  console.log('✓ Bug verified as Fixed by development team');
+  // Step 9: Fix / Remediate Bug, then QA sign-off
+  console.log('Step 9: Fix and verify defect through its lifecycle...');
+  const patchBug = (token, status) => request(`/api/v1/projects/${project.id}/bugs/${bug.id}`, {
+    method: 'PATCH',
+    headers: { 'Authorization': `Bearer ${token}` },
+    body: { status }
+  });
+  assert.strictEqual((await patchBug(devToken, 'Verified')).status, 400, 'Open → Verified must be rejected');
+  assert.strictEqual((await patchBug(devToken, 'In Progress')).status, 200);
+  assert.strictEqual((await patchBug(devToken, 'Fixed')).status, 200);
+  assert.strictEqual((await patchBug(devToken, 'Verified')).status, 403, 'Developers cannot verify their own fix');
+  const verifyRes = await patchBug(creatorToken, 'Verified');
+  assert.strictEqual(verifyRes.status, 200);
+  assert.strictEqual(verifyRes.body.data.status, 'Verified');
+  console.log('✓ Bug fixed by development and verified by QA owner');
 
   // Step 10: Create Release Gate
   console.log('Step 10: Cut production release gate...');
@@ -181,7 +212,39 @@ export async function runLifecycleFlowTests() {
   });
   assert.strictEqual(relRes.status, 201);
   const release = relRes.body.data;
-  console.log(`✓ Production release gate created: '${release.name}'`);
+  assert.strictEqual(release.status, 'Planning');
+  const blockerRes = await request(`/api/v1/projects/${project.id}/bugs`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${creatorToken}` },
+    body: { title: 'Antenna gimbal drift', severity: 'High', relatedRequirementId: requirement.id }
+  });
+  assert.strictEqual(blockerRes.status, 201);
+  const patchRelease = status => request(`/api/v1/projects/${project.id}/releases/${release.id}`, {
+    method: 'PATCH',
+    headers: { 'Authorization': `Bearer ${creatorToken}` },
+    body: { status }
+  });
+  assert.strictEqual((await patchRelease('Staging')).status, 200);
+  const blockedRes = await patchRelease('Released');
+  assert.strictEqual(blockedRes.status, 409, 'Release gate must block on unresolved High defects');
+  assert.strictEqual(blockedRes.body.error.code, 'RELEASE_BLOCKED');
+  // Triage the blocker as a duplicate and close it, then ship
+  const closeRes = await request(`/api/v1/projects/${project.id}/bugs/${blockerRes.body.data.id}`, {
+    method: 'PATCH',
+    headers: { 'Authorization': `Bearer ${creatorToken}` },
+    body: { status: 'Closed' }
+  });
+  assert.strictEqual(closeRes.status, 200);
+  const shippedRes = await patchRelease('Released');
+  assert.strictEqual(shippedRes.status, 200);
+  assert.ok(shippedRes.body.data.actualDate, 'Released gate records its ship date');
+  const linkRes = await request(`/api/v1/projects/${project.id}/requirements/${requirement.id}`, {
+    method: 'PATCH',
+    headers: { 'Authorization': `Bearer ${creatorToken}` },
+    body: { targetRelease: release.id, status: 'Implemented' }
+  });
+  assert.strictEqual(linkRes.status, 200);
+  console.log(`✓ Production release gate created and shipped: '${release.name}'`);
 
   // Step 11: Verify Complete Traceability Matrix
   console.log('Step 11: Validate end-to-end bidirectional traceability matrix...');
@@ -200,14 +263,35 @@ export async function runLifecycleFlowTests() {
   assert.strictEqual(traceEntry.testCases[0].id, testCase.id);
   assert.strictEqual(traceEntry.testRuns.length, 1);
   assert.strictEqual(traceEntry.testRuns[0].result, 'Failed');
-  assert.strictEqual(traceEntry.bugs.length, 1);
-  assert.strictEqual(traceEntry.bugs[0].id, bug.id);
+  assert.strictEqual(traceEntry.bugs.length, 2);
+  assert.ok(traceEntry.bugs.some(b => b.id === bug.id));
+  assert.strictEqual(traceEntry.releases.length, 1);
+  assert.strictEqual(traceEntry.releases[0].id, release.id);
+  const historyRes = await request(`/api/v1/projects/${project.id}/requirements/${requirement.id}/history`, {
+    headers: { 'Authorization': `Bearer ${creatorToken}` }
+  });
+  assert.ok(historyRes.body.data.some(h => h.field === 'status' && h.newValue === 'Implemented'), 'Requirement history is append-only');
+  const coverageRes = await request(`/api/v1/projects/${project.id}/coverage`, {
+    headers: { 'Authorization': `Bearer ${creatorToken}` }
+  });
+  assert.strictEqual(coverageRes.status, 200);
+  assert.strictEqual(coverageRes.body.data.defectsResolvedPct, 100);
+  assert.strictEqual(coverageRes.body.data.blockerCount, 0);
   console.log('✓ Complete bidirectional lifecycle trace confirmed (Requirement → Task → Test → Bug → Release)!');
 
   // Step 12: Confirm Strict Cross-Project Data Isolation
   console.log('Step 12: Confirm unauthenticated or outsider users cannot access this project...');
-  const outsiderAttempt = await request(`/api/v1/projects/${project.id}/traceability`);
-  assert.strictEqual(outsiderAttempt.status, 401, 'Unauthenticated access must be denied');
+  const anonAttempt = await request(`/api/v1/projects/${project.id}/traceability`);
+  assert.strictEqual(anonAttempt.status, 401, 'Unauthenticated access must be denied');
+  const outsiderReg = await request('/api/v1/auth/register', {
+    method: 'POST',
+    body: { name: 'Mallory', email: 'mallory@rival.io', password: 'StrongSecurePassword123!' }
+  });
+  assert.strictEqual(outsiderReg.status, 201);
+  const outsiderAttempt = await request(`/api/v1/projects/${project.id}/traceability`, {
+    headers: { 'Authorization': `Bearer ${outsiderReg.body.data.token}` }
+  });
+  assert.strictEqual(outsiderAttempt.status, 403, 'Registered non-members must be denied');
   console.log('✓ Project data confirmed strictly isolated from unauthorized parties');
 
   console.log('✓ All 12 Steps of the End-to-End Lifecycle Journey PASSED with 100% success!\n');

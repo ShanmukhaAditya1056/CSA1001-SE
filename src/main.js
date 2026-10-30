@@ -1,6 +1,6 @@
 // DevTrack — Master Application Shell & Client-Side Router
 import { store } from './store.js';
-import { avatar, showToast, showModal, closeModal, formatDate, showConfirm } from './ui.js';
+import { avatar, showToast, showModal, closeModal, formatDate, showConfirm, escapeHtml } from './ui.js';
 
 import { renderSignIn, renderRegister, renderForgotPassword } from './pages/auth.js';
 import { subscribeFirebaseAuthState, firebaseLogout, waitForAuthReady } from './firebase.js';
@@ -28,9 +28,11 @@ const ROUTES = {
   '#/projects': { render: renderProjects, nav: 'projects' },
   '#/requirements': { render: renderRequirements, nav: 'requirements' },
   '#/sprints': { render: renderSprints, nav: 'sprints' },
+  '#/board': { render: renderSprints, nav: 'sprints' },
   '#/tests': { render: renderTests, nav: 'tests' },
   '#/bugs': { render: renderBugs, nav: 'bugs' },
   '#/releases': { render: renderReleases, nav: 'releases' },
+  '#/matrix': { render: renderReleases, nav: 'releases' },
   '#/team': { render: renderTeam, nav: 'team' },
   '#/settings': { render: renderSettings, nav: 'settings' },
   '#/audit': { render: renderSettings, nav: 'settings' },
@@ -41,10 +43,10 @@ const ROUTES = {
 function getActiveNavKey(hash) {
   if (ROUTES[hash]?.nav) return ROUTES[hash].nav;
   if (hash.startsWith('#/requirements')) return 'requirements';
-  if (hash.startsWith('#/sprints')) return 'sprints';
+  if (hash.startsWith('#/sprints') || hash.startsWith('#/board')) return 'sprints';
   if (hash.startsWith('#/tests')) return 'tests';
   if (hash.startsWith('#/bugs')) return 'bugs';
-  if (hash.startsWith('#/releases')) return 'releases';
+  if (hash.startsWith('#/releases') || hash.startsWith('#/matrix')) return 'releases';
   if (hash.startsWith('#/team')) return 'team';
   if (hash.startsWith('#/projects')) return 'projects';
   if (hash.startsWith('#/settings') || hash.startsWith('#/audit')) return 'settings';
@@ -54,11 +56,14 @@ function getActiveNavKey(hash) {
 
 function renderShell(contentRenderer) {
   const user = store.currentUser;
-  const project = store.getActiveProject() || { name: 'DevTrack Platform', key: 'DEV' };
+  const activeProject = store.getActiveProject() || { name: 'No Project', key: '—' };
+  const project = { ...activeProject, name: escapeHtml(activeProject.name), key: escapeHtml(activeProject.key) };
   const allProjects = store.getProjects();
   const currentHash = window.location.hash || '#/dashboard';
   const activeNav = getActiveNavKey(currentHash);
-  const userRole = store.getUserRole(project.id) || 'Lead';
+  const userRole = store.getUserRole(project.id) || 'No Role';
+  const userName = escapeHtml(user?.name || user?.email || 'User');
+  const userEmail = escapeHtml(user?.email || '');
   const pendingInvsCount = user ? store.getPendingInvitationsCount(user.email) : 0;
 
 
@@ -88,7 +93,7 @@ function renderShell(contentRenderer) {
               <span class="font-geist text-body-sm font-bold text-text-primary truncate">${project.name}</span>
             </div>
             <select id="sidebar-proj-select" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" title="Switch active project">
-              ${allProjects.map(p => `<option value="${p.id}" ${p.id === project.id ? 'selected' : ''}>${p.name} (${p.key})</option>`).join('')}
+              ${allProjects.map(p => `<option value="${escapeHtml(p.id)}" ${p.id === project.id ? 'selected' : ''}>${escapeHtml(p.name)} (${escapeHtml(p.key)})</option>`).join('')}
             </select>
             <span class="material-symbols-outlined text-[16px] text-text-muted pointer-events-none">unfold_more</span>
           </div>
@@ -222,7 +227,7 @@ function renderShell(contentRenderer) {
             <div class="flex items-center gap-2.5 p-1 rounded-lg hover:bg-surface-panel transition-colors cursor-pointer">
               ${avatar(user?.name || user?.email || 'User', 'w-8 h-8 text-[12px]', user?.photoURL)}
               <div class="hidden md:flex flex-col text-left">
-                <span class="font-geist text-body-sm font-bold text-text-primary leading-tight">${user?.name || user?.email || 'User'}</span>
+                <span class="font-geist text-body-sm font-bold text-text-primary leading-tight">${userName}</span>
                 <span class="font-jetbrains text-[10px] text-text-muted leading-tight">${userRole}</span>
               </div>
               <span class="material-symbols-outlined text-[16px] text-text-muted">expand_more</span>
@@ -231,8 +236,8 @@ function renderShell(contentRenderer) {
             <!-- Dropdown Menu -->
             <div class="absolute right-0 top-full mt-1 w-56 bg-surface-canvas border border-border-strong rounded-xl p-2 shadow-2xl hidden group-hover:block z-50 animate-scale-in">
               <div class="px-3 py-2 border-b border-border-subtle mb-1">
-                <div class="font-geist text-body-sm font-bold text-text-primary">${user?.name || 'User'}</div>
-                <div class="font-jetbrains text-[11px] text-text-muted truncate">${user?.email || ''}</div>
+                <div class="font-geist text-body-sm font-bold text-text-primary">${userName}</div>
+                <div class="font-jetbrains text-[11px] text-text-muted truncate">${userEmail}</div>
               </div>
               <a href="#/projects" class="flex items-center gap-2 px-3 py-2 rounded-lg text-body-sm text-text-secondary hover:bg-surface-panel hover:text-text-primary transition-colors">
                 <span class="material-symbols-outlined text-[16px]">workspaces</span>
@@ -363,7 +368,7 @@ function openQuickSearchModal() {
           <div class="p-2.5 rounded-lg bg-surface-base hover:bg-surface-panel cursor-pointer flex items-center justify-between border border-border-subtle transition-all" onclick="window.__closeModal(); window.location.hash='#/requirements'">
             <div class="flex items-center gap-2">
               <span class="font-jetbrains text-[11px] text-primary font-bold">${r.id}</span>
-              <span class="text-body-sm text-text-primary font-medium">${r.title}</span>
+              <span class="text-body-sm text-text-primary font-medium">${escapeHtml(r.title)}</span>
             </div>
             <span class="text-[10px] font-jetbrains text-text-muted">${r.priority}</span>
           </div>
@@ -378,7 +383,7 @@ function openQuickSearchModal() {
           <div class="p-2.5 rounded-lg bg-surface-base hover:bg-surface-panel cursor-pointer flex items-center justify-between border border-border-subtle transition-all" onclick="window.__closeModal(); window.location.hash='#/sprints'">
             <div class="flex items-center gap-2">
               <span class="font-jetbrains text-[11px] text-secondary font-bold">${t.id}</span>
-              <span class="text-body-sm text-text-primary font-medium">${t.title}</span>
+              <span class="text-body-sm text-text-primary font-medium">${escapeHtml(t.title)}</span>
             </div>
             <span class="text-[10px] font-jetbrains text-text-muted">${t.status}</span>
           </div>
@@ -393,7 +398,7 @@ function openQuickSearchModal() {
           <div class="p-2.5 rounded-lg bg-surface-base hover:bg-surface-panel cursor-pointer flex items-center justify-between border border-border-subtle transition-all" onclick="window.__closeModal(); window.location.hash='#/bugs'">
             <div class="flex items-center gap-2">
               <span class="font-jetbrains text-[11px] text-status-defect font-bold">${b.id}</span>
-              <span class="text-body-sm text-text-primary font-medium">${b.title}</span>
+              <span class="text-body-sm text-text-primary font-medium">${escapeHtml(b.title)}</span>
             </div>
             <span class="text-[10px] font-jetbrains text-status-defect font-semibold">${b.severity}</span>
           </div>
@@ -408,7 +413,7 @@ function openQuickSearchModal() {
           <div class="p-2.5 rounded-lg bg-surface-base hover:bg-surface-panel cursor-pointer flex items-center justify-between border border-border-subtle transition-all" onclick="window.__closeModal(); window.location.hash='#/tests'">
             <div class="flex items-center gap-2">
               <span class="font-jetbrains text-[11px] text-status-passed font-bold">${tc.id}</span>
-              <span class="text-body-sm text-text-primary font-medium">${tc.title}</span>
+              <span class="text-body-sm text-text-primary font-medium">${escapeHtml(tc.title)}</span>
             </div>
             <span class="text-[10px] font-jetbrains text-text-muted">${tc.status}</span>
           </div>
@@ -417,7 +422,7 @@ function openQuickSearchModal() {
     }
 
     if (!html) {
-      html = `<div class="p-6 text-center text-text-muted text-body-sm font-jetbrains">No matching items found for "${q}".</div>`;
+      html = `<div class="p-6 text-center text-text-muted text-body-sm font-jetbrains">No matching items found for "${escapeHtml(q)}".</div>`;
     }
 
     resultsEl.innerHTML = html;
@@ -427,7 +432,8 @@ function openQuickSearchModal() {
 export function openInvitationsInboxModal(onChanged) {
   const user = store.currentUser;
   if (!user) return;
-  const invs = store.getUserInvitations(user.email);
+  const invs = store.getUserInvitations(user.email).map(inv =>
+    Object.fromEntries(Object.entries(inv).map(([k, v]) => [k, typeof v === 'string' ? escapeHtml(v) : v])));
   const nowMs = Date.now();
   const pendingInvs = invs.filter(i => i.status === 'Pending' && new Date(i.expiresAt).getTime() > nowMs);
   const historyInvs = invs.filter(i => i.status !== 'Pending' || new Date(i.expiresAt).getTime() <= nowMs);
@@ -440,7 +446,7 @@ export function openInvitationsInboxModal(onChanged) {
         </div>
         <div class="text-[12px]">
           <span class="font-semibold text-text-primary block text-body-sm">Central In-App Invitation Inbox</span>
-          <span class="text-text-muted">Review, accept, or decline workspace invitations for <strong class="text-text-primary">${user.email}</strong>. Accepting grants immediate role-based membership.</span>
+          <span class="text-text-muted">Review, accept, or decline workspace invitations for <strong class="text-text-primary">${escapeHtml(user.email)}</strong>. Accepting grants immediate role-based membership.</span>
         </div>
       </div>
 
@@ -522,6 +528,7 @@ export function openInvitationsInboxModal(onChanged) {
       if (res.error) {
         showToast(res.error, 'error');
       } else {
+        sessionStorage.removeItem('pending_invite_token');
         closeModal();
         showToast(`Accepted invitation to join ${btn.dataset.name}!`, 'success');
         if (onChanged) onChanged();
@@ -532,11 +539,12 @@ export function openInvitationsInboxModal(onChanged) {
   document.querySelectorAll('.inbox-decline-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const invId = btn.dataset.id;
-      showConfirm(`Decline invitation to join "${btn.dataset.name}"?`, () => {
+      showConfirm(`Decline invitation to join "${escapeHtml(btn.dataset.name)}"?`, () => {
         const res = store.declineInvitation(invId);
         if (res.error) {
           showToast(res.error, 'error');
         } else {
+          sessionStorage.removeItem('pending_invite_token');
           showToast('Invitation declined.', 'info');
           openInvitationsInboxModal(onChanged);
         }
@@ -598,6 +606,14 @@ function route() {
     sessionStorage.setItem('pending_invite_token', detectedToken);
   }
 
+  // Links of the form /?token=... would otherwise re-inject the token on every
+  // navigation; move it into the hash route once and drop the query string.
+  if (detectedToken && new URLSearchParams(window.location.search).has('token')) {
+    window.history.replaceState(null, '', `${window.location.pathname}#/invite?token=${encodeURIComponent(detectedToken)}`);
+    route();
+    return;
+  }
+
   // Handle Secure Invitation Links (#/invite?token=... or ?token=... or #/invite/...)
   if (hash.startsWith('#/invite') || (detectedToken && !store.currentUser && hash !== '#/login' && hash !== '#/register')) {
     const token = detectedToken || sessionStorage.getItem('pending_invite_token') || '';
@@ -642,7 +658,6 @@ function route() {
 
 window.addEventListener('hashchange', route);
 window.addEventListener('devtrack:store-sync', route);
-window.addEventListener('DOMContentLoaded', route);
 route();
 
 // Real-time Firebase Authentication State Synchronizer with persistent refresh protection

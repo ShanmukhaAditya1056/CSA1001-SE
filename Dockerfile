@@ -1,30 +1,23 @@
-# Multi-Stage Dockerfile for DevTrack Lifecycle Platform
-# Stage 1: Build Stage
-FROM node:20-alpine AS builder
-
-WORKDIR /app
-
-COPY package*.json ./
-RUN npm ci
-
-COPY . .
-RUN npm run build
-
-# Stage 2: Runtime Stage
-FROM node:20-alpine AS runner
+# DevTrack API — lightweight Alpine container for Render (frontend ships separately to Vercel)
+FROM node:20-alpine
 
 WORKDIR /app
 
 ENV NODE_ENV=production
+ENV PORT=4000
+
+# The API server has zero runtime dependencies; it only needs its own code
+# plus the shared domain rules module.
+COPY package*.json ./
+COPY server ./server
+COPY src/rules.js ./src/rules.js
 
 # Security: Non-root user
 USER node
 
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/src ./src
-COPY --from=builder /app/index.html ./index.html
+EXPOSE 4000
 
-EXPOSE 5173
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD wget -qO- "http://127.0.0.1:${PORT}/api/health" || exit 1
 
-CMD ["npx", "vite", "preview", "--host", "0.0.0.0", "--port", "5173"]
+CMD ["node", "server/src/server.js"]

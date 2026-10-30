@@ -1,106 +1,94 @@
 // DevTrack Unit Tests: Business Rules & Validation (gemini.md Section 10)
 import assert from 'node:assert';
+import {
+  ROLES, PERMISSIONS, can, MOSCOW_PRIORITIES, isValidPriority, validateSprintDates,
+  TASK_STATUSES, TASK_TRANSITIONS, canTransitionTask, BUG_SEVERITIES, BUG_STATUSES,
+  isValidSeverity, canTransitionBug, buildTraceability, computeCoverage
+} from '../../src/rules.js';
 
 export async function runBusinessRulesTests() {
   console.log('\n--- [UNIT TESTS] Business Rules & Model Validation ---');
 
-  // 1. Role Permission Matrix Validation
+  // 1. Role Permission Matrix Validation (production rules module)
   console.log('Testing: Role Permission Matrix...');
-  const ROLES = {
-    Owner: { canWrite: true, canManageTeam: true, canDeleteProject: true, canCutRelease: true },
-    Developer: { canWrite: true, canManageTeam: false, canDeleteProject: false, canCutRelease: false },
-    Tester: { canWrite: true, canManageTeam: false, canDeleteProject: false, canCutRelease: false },
-    Viewer: { canWrite: false, canManageTeam: false, canDeleteProject: false, canCutRelease: false }
-  };
-
-  assert.strictEqual(ROLES.Owner.canManageTeam, true, 'Owner must have team management permission');
-  assert.strictEqual(ROLES.Viewer.canWrite, false, 'Viewer must have read-only access');
-  assert.strictEqual(ROLES.Developer.canDeleteProject, false, 'Developer cannot delete projects');
-  console.log('✓ Role permission matrix correctly structured');
+  assert.deepStrictEqual(ROLES, ['Owner', 'Developer', 'Tester', 'Viewer']);
+  assert.strictEqual(can('Owner', 'team.manage'), true, 'Owner must have team management permission');
+  assert.strictEqual(can('Owner', 'release.write'), true, 'Owner approves releases');
+  assert.strictEqual(can('Developer', 'requirement.write'), true, 'Developer authors requirements');
+  assert.strictEqual(can('Developer', 'task.write'), true, 'Developer moves Kanban tasks');
+  assert.strictEqual(can('Developer', 'team.manage'), false, 'Developer cannot manage the team');
+  assert.strictEqual(can('Tester', 'testrun.create'), true, 'Tester records test runs');
+  assert.strictEqual(can('Tester', 'requirement.write'), false, 'Tester cannot author requirements');
+  assert.strictEqual(can('Developer', 'bug.verify'), false, 'Developer cannot sign off own fixes');
+  Object.keys(PERMISSIONS).forEach(action => assert.strictEqual(can('Viewer', action), false, `Viewer must be read-only (${action})`));
+  assert.strictEqual(can(null, 'requirement.write'), false, 'Non-members have no permissions');
+  console.log('✓ Role permission matrix correctly enforced');
 
   // 2. MoSCoW Priorities Validation
   console.log('Testing: MoSCoW Priority Validation...');
-  const validPriorities = ['Must', 'Should', 'Could', "Won't"];
-  function validatePriority(p) {
-    if (!validPriorities.includes(p)) throw new Error(`Invalid MoSCoW priority: ${p}`);
-    return true;
-  }
-  validPriorities.forEach(p => assert.doesNotThrow(() => validatePriority(p)));
-  assert.throws(() => validatePriority('Optional'), /Invalid MoSCoW priority/);
+  MOSCOW_PRIORITIES.forEach(p => assert.strictEqual(isValidPriority(p), true));
+  assert.strictEqual(isValidPriority('Optional'), false);
+  assert.strictEqual(isValidPriority('must'), false, 'Priorities are case-sensitive');
   console.log('✓ MoSCoW priorities strictly validated');
 
   // 3. Sprint Date Validation
   console.log('Testing: Sprint Date Range Validation...');
-  function validateSprintDates(start, end) {
-    const s = new Date(start).getTime();
-    const e = new Date(end).getTime();
-    if (isNaN(s) || isNaN(e)) return { valid: false, reason: 'Invalid date format' };
-    if (s >= e) return { valid: false, reason: 'Start date must be strictly before end date' };
-    return { valid: true };
-  }
   assert.strictEqual(validateSprintDates('2026-10-01', '2026-10-15').valid, true);
   assert.strictEqual(validateSprintDates('2026-10-15', '2026-10-01').valid, false);
   assert.strictEqual(validateSprintDates('2026-10-01', '2026-10-01').valid, false);
+  assert.strictEqual(validateSprintDates('not-a-date', '2026-10-01').valid, false);
+  assert.strictEqual(validateSprintDates('', '').valid, false);
   console.log('✓ Sprint date chronology enforced');
 
   // 4. Task State Machine Transitions
   console.log('Testing: Task Kanban Workflow Transitions...');
-  const TASK_STATUSES = ['Backlog', 'To Do', 'In Progress', 'In Review', 'Done'];
-  const ALLOWED_TASK_TRANSITIONS = {
-    'Backlog': ['To Do'],
-    'To Do': ['In Progress', 'Backlog'],
-    'In Progress': ['In Review', 'To Do'],
-    'In Review': ['Done', 'In Progress'],
-    'Done': ['In Review']
-  };
-
-  function canTransitionTask(from, to) {
-    if (!TASK_STATUSES.includes(from) || !TASK_STATUSES.includes(to)) return false;
-    return ALLOWED_TASK_TRANSITIONS[from]?.includes(to) || false;
-  }
-
   assert.strictEqual(canTransitionTask('Backlog', 'To Do'), true);
   assert.strictEqual(canTransitionTask('To Do', 'In Progress'), true);
   assert.strictEqual(canTransitionTask('In Progress', 'In Review'), true);
   assert.strictEqual(canTransitionTask('In Review', 'Done'), true);
   assert.strictEqual(canTransitionTask('Backlog', 'Done'), false);
+  assert.strictEqual(canTransitionTask('To Do', 'Done'), false, 'Cannot skip review');
+  assert.strictEqual(canTransitionTask('Done', 'Archived'), false, 'Unknown terminal states rejected');
+  TASK_STATUSES.forEach(st => assert.ok(Array.isArray(TASK_TRANSITIONS[st]), `${st} has a transition list`));
   console.log('✓ Task Kanban state machine transitions validated');
 
   // 5. Bug Severity Triage & Status Flow
   console.log('Testing: Defect Severity Triage...');
-  const BUG_SEVERITIES = ['Critical', 'High', 'Medium', 'Low'];
-  function validateBugSeverity(sev) {
-    return BUG_SEVERITIES.includes(sev);
-  }
-  assert.strictEqual(validateBugSeverity('Critical'), true);
-  assert.strictEqual(validateBugSeverity('P1-Blocker'), false);
-
-  const BUG_STATUSES = ['Open', 'In Progress', 'Fixed', 'Closed'];
-  function validateBugStatus(status) {
-    return BUG_STATUSES.includes(status);
-  }
-  assert.strictEqual(validateBugStatus('Fixed'), true);
-  assert.strictEqual(validateBugStatus('Pending'), false);
+  BUG_SEVERITIES.forEach(sev => assert.strictEqual(isValidSeverity(sev), true));
+  assert.strictEqual(isValidSeverity('P1-Blocker'), false);
+  assert.deepStrictEqual(BUG_STATUSES, ['Open', 'In Progress', 'Fixed', 'Verified', 'Closed']);
+  assert.strictEqual(canTransitionBug('Open', 'In Progress'), true);
+  assert.strictEqual(canTransitionBug('In Progress', 'Fixed'), true);
+  assert.strictEqual(canTransitionBug('Fixed', 'Verified'), true);
+  assert.strictEqual(canTransitionBug('Verified', 'Closed'), true);
+  assert.strictEqual(canTransitionBug('Open', 'Verified'), false, 'Cannot verify an unfixed defect');
+  assert.strictEqual(canTransitionBug('Open', 'Pending'), false);
   console.log('✓ Bug severity and lifecycle status validated');
 
   // 6. Traceability Matrix Calculation Logic
   console.log('Testing: Traceability Matrix Graph Aggregation...');
-  const mockReq = { id: 'req-01', title: 'Login with OAuth' };
-  const mockTasks = [{ id: 'task-01', requirementIds: ['req-01'] }, { id: 'task-02', requirementIds: ['req-02'] }];
-  const mockTCs = [{ id: 'tc-01', requirementIds: ['req-01'] }];
-  const mockRuns = [{ id: 'tr-01', testCaseId: 'tc-01', result: 'Passed' }];
-  const mockBugs = [{ id: 'bug-01', relatedRequirementId: 'req-01' }];
-
-  const linkedTasks = mockTasks.filter(t => t.requirementIds.includes(mockReq.id));
-  const linkedTCs = mockTCs.filter(tc => tc.requirementIds.includes(mockReq.id));
-  const linkedRuns = linkedTCs.flatMap(tc => mockRuns.filter(tr => tr.testCaseId === tc.id));
-  const linkedBugs = mockBugs.filter(b => b.relatedRequirementId === mockReq.id);
-
-  assert.strictEqual(linkedTasks.length, 1);
-  assert.strictEqual(linkedTCs.length, 1);
-  assert.strictEqual(linkedRuns.length, 1);
-  assert.strictEqual(linkedBugs.length, 1);
-  console.log('✓ Bidirectional traceability links correctly computed');
+  const matrix = buildTraceability({
+    requirements: [{ id: 'req-01', title: 'Login with OAuth', targetRelease: 'rel-01' }, { id: 'req-02', title: 'Untested' }],
+    tasks: [{ id: 'task-01', requirementIds: ['req-01'] }, { id: 'task-02', requirementIds: ['req-02'] }],
+    testCases: [{ id: 'tc-01', requirementIds: ['req-01'] }],
+    testRuns: [
+      { id: 'tr-01', testCaseId: 'tc-01', result: 'Failed', executedAt: '2026-10-01T00:00:00Z' },
+      { id: 'tr-02', testCaseId: 'tc-01', result: 'Passed', executedAt: '2026-10-02T00:00:00Z' }
+    ],
+    bugs: [{ id: 'bug-01', relatedRequirementId: 'req-01', severity: 'Critical', status: 'Verified' }],
+    releases: [{ id: 'rel-01', name: 'v1.0.0' }]
+  });
+  const row = matrix.find(r => r.requirement.id === 'req-01');
+  assert.strictEqual(row.tasks.length, 1);
+  assert.strictEqual(row.testCases.length, 1);
+  assert.strictEqual(row.testRuns.length, 2);
+  assert.strictEqual(row.bugs.length, 1);
+  assert.strictEqual(row.releases[0].id, 'rel-01', 'Requirement must trace through to its release gate');
+  const coverage = computeCoverage(matrix);
+  assert.strictEqual(coverage.requirementsVerifiedPct, 50, 'Only req-01 has a latest passing run');
+  assert.strictEqual(coverage.defectsResolvedPct, 100);
+  assert.strictEqual(coverage.blockerCount, 0);
+  console.log('✓ Bidirectional traceability links and coverage correctly computed');
 
   // 7. Verified Account Policy for Team Members
   console.log('Testing: Verified Account Membership Policy...');

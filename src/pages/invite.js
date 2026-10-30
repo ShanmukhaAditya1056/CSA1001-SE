@@ -1,15 +1,22 @@
 // DevTrack Secure Project Invitation View
 // Implements secure invitation links with explicit Accept/Decline workflow
 import { store } from '../store.js';
-import { avatar, formatDate, showToast, showConfirm } from '../ui.js';
+import { formatDate, showToast, showConfirm, escapeHtml } from '../ui.js';
 import { extractInviteToken } from '../main.js';
+import { firebaseLogout } from '../firebase.js';
+
+function clearPendingInvite() {
+  sessionStorage.removeItem('pending_invite_token');
+}
 
 export function renderInvite(container, token) {
   const cleanToken = (token || extractInviteToken() || '').trim();
-  const invitation = store.getInvitationByToken(cleanToken);
+  const stored = store.getInvitationByToken(cleanToken);
   const currentUser = store.currentUser;
 
-  if (!cleanToken || !invitation) {
+  if (!cleanToken || !stored) {
+    // A dead token must not keep hijacking every post-login redirect.
+    clearPendingInvite();
     container.innerHTML = `
       <div class="min-h-[70vh] flex items-center justify-center px-4 py-12">
         <div class="max-w-md w-full p-8 rounded-2xl bg-surface-canvas border border-border-subtle shadow-2xl text-center">
@@ -30,11 +37,15 @@ export function renderInvite(container, token) {
     return;
   }
 
+  // Every field below is rendered into HTML; escape once up front.
+  const invitation = Object.fromEntries(Object.entries(stored).map(([k, v]) => [k, typeof v === 'string' ? escapeHtml(v) : v]));
+
   const isExpired = invitation.status === 'Expired' || new Date(invitation.expiresAt).getTime() <= Date.now();
   const isAccepted = invitation.status === 'Accepted';
   const isDeclined = invitation.status === 'Declined';
   const isRevoked = invitation.status === 'Revoked';
   const isPending = invitation.status === 'Pending' && !isExpired;
+  if (!isPending) clearPendingInvite();
 
   // Authentication & Identity matching
   const isAuthenticated = !!currentUser;
@@ -144,7 +155,7 @@ export function renderInvite(container, token) {
               <div class="text-[12px]">
                 <span class="font-bold text-text-primary block mb-0.5">Account Mismatch</span>
                 <span class="text-text-muted">
-                  This invitation was sent to <strong class="text-text-primary">${invitation.inviteeEmail}</strong>, but you are currently signed in as <strong class="text-text-primary">${currentUser.email}</strong>.
+                  This invitation was sent to <strong class="text-text-primary">${invitation.inviteeEmail}</strong>, but you are currently signed in as <strong class="text-text-primary">${escapeHtml(currentUser.email)}</strong>.
                 </span>
                 <div class="mt-3">
                   <button id="invite-switch-account-btn" class="px-3.5 py-1.5 rounded-lg bg-surface-canvas hover:bg-surface-elevated text-text-primary text-[12px] font-medium border border-border-subtle transition-all">
@@ -199,14 +210,17 @@ export function renderInvite(container, token) {
     window.location.hash = '#/register';
   });
 
-  document.getElementById('invite-switch-account-btn')?.addEventListener('click', () => {
+  document.getElementById('invite-switch-account-btn')?.addEventListener('click', async () => {
     sessionStorage.setItem('pending_invite_token', cleanToken);
+    // Sign out of Firebase too, otherwise the persisted session logs the wrong
+    // account straight back in on the next auth-state event.
+    await firebaseLogout();
     store.logout();
     window.location.hash = '#/login';
   });
 
   // Accept button handler
-  document.getElementById('accept-invite-btn')?.addEventListener('click', async () => {
+  document.getElementById('accept-invite-btn')?.addEventListener('click', () => {
     const btn = document.getElementById('accept-invite-btn');
     if (btn) btn.disabled = true;
 
@@ -218,46 +232,21 @@ export function renderInvite(container, token) {
       return;
     }
 
-    // Call backend endpoint if server is available
-    try {
-      await fetch(`/api/v1/invitations/${cleanToken}/accept`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${currentUser?.id || currentUser?.uid}`
-        }
-      });
-    } catch {
-      // Backend sync fallback
-    }
-
-    sessionStorage.removeItem('pending_invite_token');
-    showToast(`Welcome! You have joined "${invitation.projectName}" as ${invitation.role}.`, 'success');
+    clearPendingInvite();
+    showToast(`Welcome! You have joined "${stored.projectName}" as ${stored.role}.`, 'success');
     window.location.hash = '#/dashboard';
   });
 
   // Decline button handler
   document.getElementById('decline-invite-btn')?.addEventListener('click', () => {
-    showConfirm(`Are you sure you want to decline this invitation to join "${invitation.projectName}"?`, async () => {
+    showConfirm(`Are you sure you want to decline this invitation to join "${invitation.projectName}"?`, () => {
       const res = store.declineInvitation(cleanToken);
       if (res.error) {
         showToast(res.error, 'error');
         return;
       }
 
-      try {
-        await fetch(`/api/v1/invitations/${cleanToken}/decline`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${currentUser?.id || currentUser?.uid}`
-          }
-        });
-      } catch {
-        // Backend sync fallback
-      }
-
-      sessionStorage.removeItem('pending_invite_token');
+      clearPendingInvite();
       showToast('Invitation declined.', 'info');
       window.location.hash = '#/dashboard';
     }, { title: 'Decline Invitation', destructive: true, confirmText: 'Decline' });

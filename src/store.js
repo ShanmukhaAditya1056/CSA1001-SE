@@ -1,8 +1,14 @@
 // DevTrack LocalStorage-based Data Store
 // Simulates a backend with full CRUD for all entities
+import {
+  ROLES, permissionError, isValidPriority, REQUIREMENT_STATUSES, REQUIREMENT_HISTORY_FIELDS,
+  SPRINT_STATUSES, validateSprintDates, TASK_STATUSES, canTransitionTask, TEST_TYPES, TEST_RESULTS,
+  isValidSeverity, canTransitionBug, can, BUG_VERIFY_STATES, BUG_RESOLVED_STATES, RELEASE_STATUSES,
+  isValidReleaseName, LEGACY_STATUS_MAP, buildTraceability
+} from './rules.js';
 
 const STORE_KEY = 'devtrack_store';
-const VALID_ROLES = ['Owner', 'Developer', 'Tester', 'Viewer'];
+const VALID_ROLES = ROLES;
 
 function generateId() {
   return crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2, 9);
@@ -12,6 +18,10 @@ function now() { return new Date().toISOString(); }
 
 function normalizeEmail(email) {
   return (email || '').trim().toLowerCase();
+}
+
+function cleanText(value) {
+  return typeof value === 'string' ? value.replace(/[<>"'`]/g, '').trim() : '';
 }
 
 function memberMatchesUser(member, user) {
@@ -101,7 +111,9 @@ export function decodeInviteToken(token) {
   const clean = decodeURIComponent(token).trim();
   if (!clean.startsWith('inv_')) return null;
   try {
-    const raw = clean.slice(4);
+    // Server-issued tokens carry an HMAC suffix (inv_<payload>.<sig>); the
+    // payload is still self-describing, so the client only decodes that part.
+    const raw = clean.slice(4).split('.')[0];
     let jsonStr = '';
     if (typeof Buffer !== 'undefined') {
       jsonStr = Buffer.from(raw, 'base64url').toString('utf-8');
@@ -113,18 +125,25 @@ export function decodeInviteToken(token) {
     }
     const d = JSON.parse(jsonStr);
     if (!d || !d.pid || !d.email) return null;
+    // Token content is attacker-controllable; strip markup before it reaches the DOM.
+    const team = Array.isArray(d.team) ? d.team.map(m => ({
+      id: cleanText(m?.id) || null,
+      name: cleanText(m?.name),
+      email: normalizeEmail(cleanText(m?.email)),
+      role: VALID_ROLES.includes(m?.role) ? m.role : 'Developer'
+    })) : [];
     return {
-      id: d.id,
-      projectId: d.pid,
-      projectName: d.pname,
-      projectKey: d.pkey,
-      projectDesc: d.pdesc,
-      inviterId: d.iid || '',
-      inviterName: d.iname,
-      inviterEmail: d.iemail,
-      inviteeEmail: d.email,
-      role: d.role,
-      team: Array.isArray(d.team) ? d.team : [],
+      id: cleanText(d.id),
+      projectId: cleanText(d.pid),
+      projectName: cleanText(d.pname),
+      projectKey: cleanText(d.pkey),
+      projectDesc: cleanText(d.pdesc),
+      inviterId: cleanText(d.iid),
+      inviterName: cleanText(d.iname),
+      inviterEmail: normalizeEmail(cleanText(d.iemail)),
+      inviteeEmail: normalizeEmail(cleanText(d.email)),
+      role: VALID_ROLES.includes(d.role) ? d.role : 'Developer',
+      team,
       expiresAt: d.exp,
       createdAt: d.iat,
       token: clean
@@ -205,6 +224,13 @@ class Store {
           });
         }
 
+        const migrate = (records, map) => (records || []).forEach(r => {
+          if (map[r.status]) r.status = map[r.status];
+        });
+        migrate(this._data.requirements, LEGACY_STATUS_MAP.requirement);
+        migrate(this._data.bugs, LEGACY_STATUS_MAP.bug);
+        migrate(this._data.releases, LEGACY_STATUS_MAP.release);
+
         if (!this._data.activeProjectId && this._data.projects && this._data.projects.length > 0) {
           this._data.activeProjectId = this._data.projects[0].id;
         }
@@ -241,7 +267,8 @@ class Store {
 
   login(email, password) {
     const data = this._load();
-    const user = data.users.find(u => u.email === email && u.password === password);
+    const cleanEmail = normalizeEmail(email);
+    const user = data.users.find(u => normalizeEmail(u.email) === cleanEmail && u.password === password);
     if (!user) return { error: 'Invalid email or password' };
     data.currentUser = { id: user.id, name: user.name, email: user.email };
     this._save();
@@ -359,6 +386,7 @@ class Store {
       }
     }
 
+    const isNewSession = data.currentUser?.id !== userId;
     data.currentUser = {
       id: userId,
       name: user.name,
@@ -368,7 +396,7 @@ class Store {
       uid: userId
     };
 
-    this.addAuditLog({
+    if (isNewSession) this.addAuditLog({
       type: 'FIREBASE_AUTH_LOGIN',
       title: `Firebase Real-time Login: ${user.email}`,
       details: `User authenticated via Firebase Realtime SDK (Provider: ${fbUser.providerData?.[0]?.providerId || 'password'}).`,
@@ -482,8 +510,11 @@ class Store {
   createProject({ name, key, description, startDate, endDate }) {
     const data = this._load();
     if (!data.currentUser) return { error: 'Not authenticated' };
-    if (data.projects.find(p => p.key === key)) return { error: 'Project key already exists' };
-    const project = { id: generateId(), name, key: key.toUpperCase(), description, startDate, endDate, createdBy: data.currentUser.id, createdAt: now(), updatedAt: now() };
+    const cleanKey = (key || '').trim().toUpperCase();
+    if (!name?.trim() || !/^[A-Z][A-Z0-9]{1,9}$/.test(cleanKey)) return { error: 'Project name and a 2-10 character alphanumeric key are required' };
+    if (startDate && endDate && new Date(startDate) >= new Date(endDate)) return { error: 'Project start date must be before end date' };
+    if (data.projects.find(p => (p.key || '').toUpperCase() === cleanKey)) return { error: 'Project key already exists' };
+    const project = { id: generateId(), name: name.trim(), key: cleanKey, description, startDate, endDate, createdBy: data.currentUser.id, createdAt: now(), updatedAt: now() };
     data.projects.push(project);
     data.members.push({
       id: generateId(),
@@ -503,7 +534,10 @@ class Store {
     const data = this._load();
     const idx = data.projects.findIndex(p => p.id === id);
     if (idx === -1) return { error: 'Project not found' };
-    data.projects[idx] = { ...data.projects[idx], ...updates, updatedAt: now() };
+    const denied = this._deny(id, 'project.update');
+    if (denied) return denied;
+    const { id: _id, key: _key, createdBy: _cb, ...safe } = updates;
+    data.projects[idx] = { ...data.projects[idx], ...safe, updatedAt: now() };
     this._save();
     return { data: data.projects[idx] };
   }
@@ -669,6 +703,19 @@ class Store {
     if (!projectId || !data.currentUser) return null;
     const m = data.members.find(m => m.projectId === projectId && memberMatchesUser(m, data.currentUser));
     return m ? m.role : null;
+  }
+
+  _deny(projectId, action) {
+    if (!this._load().currentUser) return { error: 'Authentication required.' };
+    const msg = permissionError(this.getUserRole(projectId), action);
+    return msg ? { error: msg } : null;
+  }
+
+  // Referential integrity: linked records must exist inside the same project.
+  _invalidLinks(projectId, collection, ids, label) {
+    const records = this._load()[collection] || [];
+    const bad = (ids || []).filter(Boolean).find(id => !records.some(r => r.id === id && r.projectId === projectId));
+    return bad ? { error: `${label} '${bad}' does not belong to this project.` } : null;
   }
 
   // ===== INVITATIONS =====
@@ -1029,17 +1076,36 @@ class Store {
     if (filters.status) reqs = reqs.filter(r => r.status === filters.status);
     if (filters.search) {
       const s = filters.search.toLowerCase();
-      reqs = reqs.filter(r => r.title.toLowerCase().includes(s) || r.description.toLowerCase().includes(s));
+      reqs = reqs.filter(r => r.title.toLowerCase().includes(s) || (r.description || '').toLowerCase().includes(s));
     }
     return reqs;
   }
 
   getRequirement(id) { return this._load().requirements.find(r => r.id === id); }
 
+  _validateRequirement(projectId, reqData) {
+    if (reqData.title !== undefined && !String(reqData.title).trim()) return { error: 'Requirement title is required.' };
+    if (reqData.priority !== undefined && !isValidPriority(reqData.priority)) return { error: `Invalid MoSCoW priority: ${reqData.priority}` };
+    if (reqData.status !== undefined && !REQUIREMENT_STATUSES.includes(reqData.status)) return { error: `Invalid requirement status: ${reqData.status}` };
+    if (reqData.targetRelease) return this._invalidLinks(projectId, 'releases', [reqData.targetRelease], 'Release');
+    return null;
+  }
+
   createRequirement(projectId, reqData) {
     const data = this._load();
-    const req = { id: generateId(), projectId, ...reqData, createdBy: data.currentUser?.id, createdAt: now(), updatedAt: now() };
+    const denied = this._deny(projectId, 'requirement.write');
+    if (denied) return denied;
+    const input = { priority: 'Must', status: 'Draft', ...reqData };
+    if (!input.title) return { error: 'Requirement title is required.' };
+    const invalid = this._validateRequirement(projectId, input);
+    if (invalid) return invalid;
+    const req = { id: generateId(), projectId, ...input, title: input.title.trim(), createdBy: data.currentUser.id, createdAt: now(), updatedAt: now() };
     data.requirements.push(req);
+    data.requirementHistory.push({
+      id: generateId(), requirementId: req.id, field: 'status',
+      oldValue: '', newValue: req.status, changedBy: data.currentUser.id, changedAt: now()
+    });
+    this.addAuditLog({ type: 'REQUIREMENT_CREATED', title: `Requirement Created: ${req.title}`, details: `[${req.priority}] ${req.status}`, author: data.currentUser.name, icon: 'rule', color: 'text-primary' });
     this._save();
     return { data: req };
   }
@@ -1049,17 +1115,24 @@ class Store {
     const idx = data.requirements.findIndex(r => r.id === id);
     if (idx === -1) return { error: 'Requirement not found' };
     const old = data.requirements[idx];
-    // Record history for meaningful changes
-    ['title', 'description', 'priority', 'status', 'acceptanceCriteria'].forEach(field => {
-      if (updates[field] !== undefined && updates[field] !== old[field]) {
-        data.requirementHistory.push({
-          id: generateId(), requirementId: id, field,
-          oldValue: old[field] || '', newValue: updates[field],
-          changedBy: data.currentUser?.id, changedAt: now()
-        });
-      }
+    const denied = this._deny(old.projectId, 'requirement.write');
+    if (denied) return denied;
+    const invalid = this._validateRequirement(old.projectId, updates);
+    if (invalid) return invalid;
+    const { id: _id, projectId: _pid, ...safe } = updates;
+    // Record history for meaningful changes (append-only)
+    const changed = REQUIREMENT_HISTORY_FIELDS.filter(field => safe[field] !== undefined && safe[field] !== old[field]);
+    changed.forEach(field => {
+      data.requirementHistory.push({
+        id: generateId(), requirementId: id, field,
+        oldValue: old[field] || '', newValue: safe[field],
+        changedBy: data.currentUser.id, changedAt: now()
+      });
     });
-    data.requirements[idx] = { ...old, ...updates, updatedAt: now() };
+    data.requirements[idx] = { ...old, ...safe, updatedAt: now() };
+    if (changed.length) {
+      this.addAuditLog({ type: 'REQUIREMENT_UPDATED', title: `Requirement Updated: ${data.requirements[idx].title}`, details: `Changed: ${changed.join(', ')}`, author: data.currentUser.name, icon: 'edit_note', color: 'text-primary' });
+    }
     this._save();
     return { data: data.requirements[idx] };
   }
@@ -1080,11 +1153,18 @@ class Store {
 
   createSprint(projectId, sprintData) {
     const data = this._load();
-    if (sprintData.status === 'Active') {
+    const denied = this._deny(projectId, 'sprint.write');
+    if (denied) return denied;
+    if (!sprintData.name?.trim()) return { error: 'Sprint name is required.' };
+    const dates = validateSprintDates(sprintData.startDate, sprintData.endDate);
+    if (!dates.valid) return { error: dates.reason };
+    const status = sprintData.status || 'Planned';
+    if (!SPRINT_STATUSES.includes(status)) return { error: `Invalid sprint status: ${status}` };
+    if (status === 'Active') {
       const active = data.sprints.find(s => s.projectId === projectId && s.status === 'Active');
       if (active) return { error: 'Only one active sprint allowed per project' };
     }
-    const sprint = { id: generateId(), projectId, ...sprintData, createdAt: now() };
+    const sprint = { id: generateId(), projectId, ...sprintData, status, createdAt: now() };
     data.sprints.push(sprint);
     this._save();
     return { data: sprint };
@@ -1094,11 +1174,17 @@ class Store {
     const data = this._load();
     const idx = data.sprints.findIndex(s => s.id === id);
     if (idx === -1) return { error: 'Sprint not found' };
+    const denied = this._deny(data.sprints[idx].projectId, 'sprint.write');
+    if (denied) return denied;
+    if (updates.status !== undefined && !SPRINT_STATUSES.includes(updates.status)) return { error: `Invalid sprint status: ${updates.status}` };
+    const merged = { ...data.sprints[idx], ...updates };
+    const dates = validateSprintDates(merged.startDate, merged.endDate);
+    if (!dates.valid) return { error: dates.reason };
     if (updates.status === 'Active') {
       const active = data.sprints.find(s => s.projectId === data.sprints[idx].projectId && s.status === 'Active' && s.id !== id);
       if (active) return { error: 'Only one active sprint allowed per project' };
     }
-    data.sprints[idx] = { ...data.sprints[idx], ...updates };
+    data.sprints[idx] = merged;
     this._save();
     return { data: data.sprints[idx] };
   }
@@ -1118,7 +1204,15 @@ class Store {
 
   createTask(projectId, taskData) {
     const data = this._load();
-    const task = { id: generateId(), projectId, ...taskData, createdBy: data.currentUser?.id, createdAt: now(), updatedAt: now() };
+    const denied = this._deny(projectId, 'task.write');
+    if (denied) return denied;
+    if (!taskData.title?.trim()) return { error: 'Task title is required.' };
+    const status = taskData.status || (taskData.sprintId ? 'To Do' : 'Backlog');
+    if (!TASK_STATUSES.includes(status)) return { error: `Invalid task status: ${status}` };
+    const invalid = this._invalidLinks(projectId, 'requirements', taskData.requirementIds, 'Requirement')
+      || this._invalidLinks(projectId, 'sprints', [taskData.sprintId], 'Sprint');
+    if (invalid) return invalid;
+    const task = { id: generateId(), projectId, ...taskData, status, requirementIds: taskData.requirementIds || [], createdBy: data.currentUser.id, createdAt: now(), updatedAt: now() };
     data.tasks.push(task);
     this._save();
     return { data: task };
@@ -1128,7 +1222,17 @@ class Store {
     const data = this._load();
     const idx = data.tasks.findIndex(t => t.id === id);
     if (idx === -1) return { error: 'Task not found' };
-    data.tasks[idx] = { ...data.tasks[idx], ...updates, updatedAt: now() };
+    const task = data.tasks[idx];
+    const denied = this._deny(task.projectId, 'task.write');
+    if (denied) return denied;
+    if (updates.status !== undefined && updates.status !== task.status && !canTransitionTask(task.status, updates.status)) {
+      return { error: `Invalid Kanban transition: ${task.status} → ${updates.status}` };
+    }
+    const invalid = this._invalidLinks(task.projectId, 'requirements', updates.requirementIds, 'Requirement')
+      || this._invalidLinks(task.projectId, 'sprints', [updates.sprintId], 'Sprint');
+    if (invalid) return invalid;
+    const { id: _id, projectId: _pid, ...safe } = updates;
+    data.tasks[idx] = { ...task, ...safe, updatedAt: now() };
     this._save();
     return { data: data.tasks[idx] };
   }
@@ -1139,7 +1243,13 @@ class Store {
 
   createTestCase(projectId, tcData) {
     const data = this._load();
-    const tc = { id: generateId(), projectId, ...tcData, status: 'Active', createdBy: data.currentUser?.id, createdAt: now() };
+    const denied = this._deny(projectId, 'testcase.write');
+    if (denied) return denied;
+    if (!tcData.title?.trim()) return { error: 'Test case title is required.' };
+    if (tcData.type !== undefined && !TEST_TYPES.includes(tcData.type)) return { error: `Invalid test type: ${tcData.type}` };
+    const invalid = this._invalidLinks(projectId, 'requirements', tcData.requirementIds, 'Requirement');
+    if (invalid) return invalid;
+    const tc = { id: generateId(), projectId, ...tcData, requirementIds: tcData.requirementIds || [], status: 'Active', createdBy: data.currentUser.id, createdAt: now() };
     data.testCases.push(tc);
     this._save();
     return { data: tc };
@@ -1149,12 +1259,17 @@ class Store {
     const data = this._load();
     const idx = data.testCases.findIndex(tc => tc.id === id);
     if (idx === -1) return { error: 'Test case not found' };
-    data.testCases[idx] = { ...data.testCases[idx], ...updates };
+    const denied = this._deny(data.testCases[idx].projectId, 'testcase.write');
+    if (denied) return denied;
+    const invalid = this._invalidLinks(data.testCases[idx].projectId, 'requirements', updates.requirementIds, 'Requirement');
+    if (invalid) return invalid;
+    const { id: _id, projectId: _pid, ...safe } = updates;
+    data.testCases[idx] = { ...data.testCases[idx], ...safe };
     this._save();
     return { data: data.testCases[idx] };
   }
 
-  // ===== TEST RUNS =====
+  // ===== TEST RUNS (append-only) =====
   getTestRuns(testCaseId) {
     return this._load().testRuns.filter(tr => tr.testCaseId === testCaseId).sort((a, b) => new Date(b.executedAt) - new Date(a.executedAt));
   }
@@ -1167,8 +1282,12 @@ class Store {
     const data = this._load();
     const tc = data.testCases.find(t => t.id === testCaseId);
     if (!tc) return { error: 'Test case not found' };
-    const run = { id: generateId(), testCaseId, projectId: tc.projectId, ...runData, executedBy: data.currentUser?.id, executedAt: now() };
+    const denied = this._deny(tc.projectId, 'testrun.create');
+    if (denied) return denied;
+    if (!TEST_RESULTS.includes(runData.result)) return { error: `Invalid test result: ${runData.result}` };
+    const run = { id: generateId(), testCaseId, projectId: tc.projectId, result: runData.result, notes: runData.notes || '', executedBy: data.currentUser.id, executedAt: now() };
     data.testRuns.push(run);
+    this.addAuditLog({ type: 'TEST_RUN_RECORDED', title: `Test Run ${run.result}: ${tc.title}`, details: run.notes || 'No output logs.', author: data.currentUser.name, icon: 'science', color: run.result === 'Passed' ? 'text-status-passed' : 'text-status-defect' });
     this._save();
     return { data: run };
   }
@@ -1188,8 +1307,20 @@ class Store {
 
   createBug(projectId, bugData) {
     const data = this._load();
-    const bug = { id: generateId(), projectId, ...bugData, reporterId: data.currentUser?.id, createdAt: now(), updatedAt: now() };
+    const denied = this._deny(projectId, 'bug.create');
+    if (denied) return denied;
+    if (!bugData.title?.trim()) return { error: 'Bug title is required.' };
+    if (!isValidSeverity(bugData.severity)) return { error: `Invalid defect severity: ${bugData.severity}` };
+    const invalid = this._invalidLinks(projectId, 'requirements', [bugData.relatedRequirementId], 'Requirement')
+      || this._invalidLinks(projectId, 'testRuns', [bugData.relatedTestRunId], 'Test run');
+    if (invalid) return invalid;
+    if (bugData.relatedTestRunId) {
+      const run = data.testRuns.find(tr => tr.id === bugData.relatedTestRunId);
+      if (run.result !== 'Failed') return { error: 'Defects can only be filed against a Failed test run.' };
+    }
+    const bug = { id: generateId(), projectId, ...bugData, status: 'Open', reporterId: data.currentUser.id, createdAt: now(), updatedAt: now() };
     data.bugs.push(bug);
+    this.addAuditLog({ type: 'BUG_FILED', title: `Defect Filed: ${bug.title}`, details: `[${bug.severity}] Open`, author: data.currentUser.name, icon: 'pest_control', color: 'text-status-defect' });
     this._save();
     return { data: bug };
   }
@@ -1198,7 +1329,22 @@ class Store {
     const data = this._load();
     const idx = data.bugs.findIndex(b => b.id === id);
     if (idx === -1) return { error: 'Bug not found' };
-    data.bugs[idx] = { ...data.bugs[idx], ...updates, updatedAt: now() };
+    const bug = data.bugs[idx];
+    const role = this.getUserRole(bug.projectId);
+    const denied = this._deny(bug.projectId, 'bug.update');
+    if (denied) return denied;
+    if (updates.severity !== undefined && !isValidSeverity(updates.severity)) return { error: `Invalid defect severity: ${updates.severity}` };
+    if (updates.status !== undefined && updates.status !== bug.status) {
+      if (!canTransitionBug(bug.status, updates.status)) return { error: `Invalid defect transition: ${bug.status} → ${updates.status}` };
+      if (BUG_VERIFY_STATES.includes(updates.status) && !can(role, 'bug.verify')) {
+        return { error: `Forbidden: Only Owners and Testers can move a defect to ${updates.status}.` };
+      }
+    }
+    const { id: _id, projectId: _pid, reporterId: _r, ...safe } = updates;
+    data.bugs[idx] = { ...bug, ...safe, updatedAt: now() };
+    if (safe.status && safe.status !== bug.status) {
+      this.addAuditLog({ type: 'BUG_STATUS_CHANGED', title: `Defect ${bug.status} → ${safe.status}: ${bug.title}`, details: `Severity ${bug.severity}`, author: data.currentUser.name, icon: 'pest_control', color: 'text-status-defect' });
+    }
     this._save();
     return { data: data.bugs[idx] };
   }
@@ -1209,8 +1355,14 @@ class Store {
 
   createRelease(projectId, relData) {
     const data = this._load();
-    const rel = { id: generateId(), projectId, ...relData, createdBy: data.currentUser?.id, createdAt: now(), updatedAt: now() };
+    const denied = this._deny(projectId, 'release.write');
+    if (denied) return denied;
+    if (!isValidReleaseName(relData.name)) return { error: 'Release name must start with a SemVer version, e.g. v1.0.0' };
+    const status = relData.status || 'Planning';
+    if (!RELEASE_STATUSES.includes(status)) return { error: `Invalid release status: ${status}` };
+    const rel = { id: generateId(), projectId, ...relData, name: relData.name.trim(), status, createdBy: data.currentUser.id, createdAt: now(), updatedAt: now() };
     data.releases.push(rel);
+    this.addAuditLog({ type: 'RELEASE_CREATED', title: `Release Gate Created: ${rel.name}`, details: `Status ${rel.status}`, author: data.currentUser.name, icon: 'rocket_launch', color: 'text-status-release' });
     this._save();
     return { data: rel };
   }
@@ -1219,10 +1371,19 @@ class Store {
     const data = this._load();
     const idx = data.releases.findIndex(r => r.id === id);
     if (idx === -1) return { error: 'Release not found' };
-    if (updates.status === 'Released' && !updates.actualDate && !data.releases[idx].actualDate) {
-      updates.actualDate = new Date().toISOString().split('T')[0];
+    const denied = this._deny(data.releases[idx].projectId, 'release.write');
+    if (denied) return denied;
+    if (updates.status !== undefined && !RELEASE_STATUSES.includes(updates.status)) return { error: `Invalid release status: ${updates.status}` };
+    if (updates.name !== undefined && !isValidReleaseName(updates.name)) return { error: 'Release name must start with a SemVer version, e.g. v1.0.0' };
+    const { id: _id, projectId: _pid, ...safe } = updates;
+    if (safe.status === 'Released' && !safe.actualDate && !data.releases[idx].actualDate) {
+      safe.actualDate = new Date().toISOString().split('T')[0];
     }
-    data.releases[idx] = { ...data.releases[idx], ...updates, updatedAt: now() };
+    const prevStatus = data.releases[idx].status;
+    data.releases[idx] = { ...data.releases[idx], ...safe, updatedAt: now() };
+    if (safe.status && safe.status !== prevStatus) {
+      this.addAuditLog({ type: 'RELEASE_STATUS_CHANGED', title: `Release ${prevStatus} → ${safe.status}: ${data.releases[idx].name}`, details: 'Release gate status updated.', author: data.currentUser.name, icon: 'rocket_launch', color: 'text-status-release' });
+    }
     this._save();
     return { data: data.releases[idx] };
   }
@@ -1241,9 +1402,9 @@ class Store {
     return {
       requirements: { total: reqs.length, byStatus: countBy(reqs, 'status') },
       tasks: { total: tasks.length, byStatus: countBy(tasks, 'status') },
-      testRuns: { total: runs.length, passed: runs.filter(r => r.result === 'Passed').length, failed: runs.filter(r => r.result === 'Failed').length, blocked: runs.filter(r => r.result === 'Blocked').length, skipped: runs.filter(r => r.result === 'Skipped').length },
-      bugs: { total: bugs.length, bySeverity: countBy(bugs, 'severity'), open: bugs.filter(b => !['Closed', 'Fixed'].includes(b.status)).length },
-      releases: { total: releases.length, planned: releases.filter(r => r.status === 'Planned').length, released: releases.filter(r => r.status === 'Released').length },
+      testRuns: { total: runs.length, passed: runs.filter(r => r.result === 'Passed').length, failed: runs.filter(r => r.result === 'Failed').length, blocked: runs.filter(r => r.result === 'Blocked').length },
+      bugs: { total: bugs.length, bySeverity: countBy(bugs, 'severity'), open: bugs.filter(b => !BUG_RESOLVED_STATES.includes(b.status)).length },
+      releases: { total: releases.length, planned: releases.filter(r => r.status !== 'Released').length, released: releases.filter(r => r.status === 'Released').length },
       activeSprint: activeSprint ? { name: activeSprint.name, goal: activeSprint.goal, startDate: activeSprint.startDate, endDate: activeSprint.endDate, taskCount: tasks.filter(t => t.sprintId === activeSprint.id).length } : null,
     };
   }
@@ -1251,14 +1412,14 @@ class Store {
   // ===== TRACEABILITY =====
   getTraceability(projectId) {
     const data = this._load();
-    const reqs = data.requirements.filter(r => r.projectId === projectId);
-    return reqs.map(req => {
-      const linkedTasks = data.tasks.filter(t => t.requirementIds?.includes(req.id));
-      const linkedTestCases = data.testCases.filter(tc => tc.requirementIds?.includes(req.id));
-      const linkedTestRuns = linkedTestCases.flatMap(tc => data.testRuns.filter(tr => tr.testCaseId === tc.id));
-      const linkedBugs = data.bugs.filter(b => b.relatedRequirementId === req.id);
-      const linkedReleases = data.releases.filter(r => linkedTasks.some(t => r.taskIds?.includes(t.id)));
-      return { requirement: req, tasks: linkedTasks, testCases: linkedTestCases, testRuns: linkedTestRuns, bugs: linkedBugs, releases: linkedReleases };
+    const inProject = list => (list || []).filter(x => x.projectId === projectId);
+    return buildTraceability({
+      requirements: inProject(data.requirements),
+      tasks: inProject(data.tasks),
+      testCases: inProject(data.testCases),
+      testRuns: inProject(data.testRuns),
+      bugs: inProject(data.bugs),
+      releases: inProject(data.releases)
     });
   }
 }
