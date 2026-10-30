@@ -641,6 +641,7 @@ function route() {
 }
 
 window.addEventListener('hashchange', route);
+window.addEventListener('devtrack:store-sync', route);
 window.addEventListener('DOMContentLoaded', route);
 route();
 

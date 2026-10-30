@@ -2,12 +2,30 @@
 // Simulates a backend with full CRUD for all entities
 
 const STORE_KEY = 'devtrack_store';
+const VALID_ROLES = ['Owner', 'Developer', 'Tester', 'Viewer'];
 
 function generateId() {
   return crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2, 9);
 }
 
 function now() { return new Date().toISOString(); }
+
+function normalizeEmail(email) {
+  return (email || '').trim().toLowerCase();
+}
+
+function memberMatchesUser(member, user) {
+  if (!member || !user) return false;
+  if (member.userId && user.id && member.userId === user.id) return true;
+  return Boolean(member.userEmail && user.email && normalizeEmail(member.userEmail) === normalizeEmail(user.email));
+}
+
+function isRegisteredUser(data, user) {
+  if (!user) return false;
+  return Boolean(user.isFirebase) || (data.users || []).some(u =>
+    u.id === user.id || (u.email && user.email && normalizeEmail(u.email) === normalizeEmail(user.email))
+  );
+}
 
 // Default clean data structure (Real-time Firebase users only)
 function getDefaultData() {
@@ -53,10 +71,12 @@ export function encodeInviteToken(data) {
       pname: data.projectName,
       pkey: data.projectKey,
       pdesc: data.projectDesc || '',
+      iid: data.inviterId || '',
       iname: data.inviterName,
       iemail: data.inviterEmail,
       email: (data.inviteeEmail || '').toLowerCase(),
       role: data.role,
+      team: Array.isArray(data.team) ? data.team : [],
       exp: data.expiresAt,
       iat: data.createdAt
     };
@@ -99,10 +119,12 @@ export function decodeInviteToken(token) {
       projectName: d.pname,
       projectKey: d.pkey,
       projectDesc: d.pdesc,
+      inviterId: d.iid || '',
       inviterName: d.iname,
       inviterEmail: d.iemail,
       inviteeEmail: d.email,
       role: d.role,
+      team: Array.isArray(d.team) ? d.team : [],
       expiresAt: d.exp,
       createdAt: d.iat,
       token: clean
@@ -281,9 +303,9 @@ class Store {
       return null;
     }
     const data = this._load();
-    const email = fbUser.email || 'user@firebase.io';
+    const email = normalizeEmail(fbUser.email || 'user@firebase.io');
     const userId = fbUser.uid || generateId();
-    let user = data.users.find(u => u.id === userId || u.email.toLowerCase() === email.toLowerCase());
+    let user = data.users.find(u => u.id === userId || normalizeEmail(u.email) === email);
 
     if (!user) {
       user = {
@@ -296,17 +318,24 @@ class Store {
       };
       data.users.push(user);
     } else {
-      user.id = userId;
-      if (fbUser.displayName) user.name = fbUser.displayName;
-      if (fbUser.photoURL) user.photoURL = fbUser.photoURL;
+      const previousId = user.id;
+      user.name = fbUser.displayName || user.name || email.split('@')[0];
+      user.photoURL = fbUser.photoURL || user.photoURL || null;
       user.email = email;
       user.isFirebase = true;
+      user.id = userId;
+
+      // Firebase UIDs can differ from older local IDs. Migrate every reference so
+      // project memberships and audit trails are not orphaned.
+      if (previousId && previousId !== userId) {
+        this._migrateUserReferences(data, previousId, userId, user.name, email);
+      }
     }
 
     // Ensure project owner exists if no members yet, or link existing invitation
     if (data.projects && data.projects.length > 0) {
       const activeProjId = data.activeProjectId || data.projects[0].id;
-      let member = data.members.find(m => m.projectId === activeProjId && (m.userId === userId || (m.userEmail && m.userEmail.toLowerCase() === email.toLowerCase())));
+      let member = data.members.find(m => m.projectId === activeProjId && memberMatchesUser(m, { id: userId, email }));
       if (!member) {
         const existingMembers = data.members.filter(m => m.projectId === activeProjId);
         const hasPendingInvite = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('pending_invite_token');
@@ -318,7 +347,7 @@ class Store {
             projectId: activeProjId,
             userId: userId,
             userName: user.name,
-            userEmail: user.email,
+            userEmail: email,
             role: 'Owner',
             addedAt: now()
           });
@@ -326,14 +355,14 @@ class Store {
       } else {
         member.userId = userId;
         member.userName = user.name;
-        member.userEmail = user.email;
+        member.userEmail = email;
       }
     }
 
     data.currentUser = {
       id: userId,
       name: user.name,
-      email: user.email,
+      email: email,
       photoURL: user.photoURL || null,
       isFirebase: true,
       uid: userId
@@ -350,6 +379,42 @@ class Store {
 
     this._save();
     return data.currentUser;
+  }
+
+  _migrateUserReferences(data, oldId, newId, name, email) {
+    const replace = (record, field) => {
+      if (record && record[field] === oldId) record[field] = newId;
+    };
+
+    (data.projects || []).forEach(p => replace(p, 'createdBy'));
+    (data.requirements || []).forEach(r => replace(r, 'createdBy'));
+    (data.requirementHistory || []).forEach(h => replace(h, 'changedBy'));
+    (data.tasks || []).forEach(t => replace(t, 'assigneeId'));
+    (data.testCases || []).forEach(tc => replace(tc, 'createdBy'));
+    (data.testRuns || []).forEach(tr => replace(tr, 'executedBy'));
+    (data.bugs || []).forEach(b => {
+      replace(b, 'reporterId');
+      replace(b, 'assigneeId');
+    });
+    (data.releases || []).forEach(r => replace(r, 'createdBy'));
+    (data.invitations || []).forEach(inv => replace(inv, 'inviterId'));
+
+    (data.members || []).forEach(m => {
+      if (m.userId === oldId || (m.userEmail && normalizeEmail(m.userEmail) === email)) {
+        m.userId = newId;
+        m.userName = name;
+        m.userEmail = email;
+      }
+    });
+
+    // Collapse duplicate memberships that can result from the ID migration.
+    const seenProjects = new Set();
+    data.members = (data.members || []).filter(m => {
+      if (m.userId !== newId) return true;
+      if (seenProjects.has(m.projectId)) return false;
+      seenProjects.add(m.projectId);
+      return true;
+    });
   }
 
   addAuditLog(entry) {
@@ -381,8 +446,9 @@ class Store {
   getProjects() {
     const data = this._load();
     if (!data.currentUser) return [];
-    const memberProjectIds = data.members.filter(m => m.userId === data.currentUser.id).map(m => m.projectId);
-    return data.projects.filter(p => memberProjectIds.includes(p.id));
+    return data.projects.filter(p =>
+      data.members.some(m => m.projectId === p.id && memberMatchesUser(m, data.currentUser))
+    );
   }
 
   getProject(id) {
@@ -391,8 +457,10 @@ class Store {
 
   getActiveProjectId() {
     const data = this._load();
-    if (!data.activeProjectId && data.projects.length > 0) {
-      data.activeProjectId = data.projects[0].id;
+    const projects = this.getProjects();
+    if (projects.length === 0) return null;
+    if (!data.activeProjectId || !projects.some(p => p.id === data.activeProjectId)) {
+      data.activeProjectId = projects[0].id;
       this._save();
     }
     return data.activeProjectId;
@@ -405,8 +473,10 @@ class Store {
   }
 
   getActiveProject() {
+    const projects = this.getProjects();
+    if (projects.length === 0) return null;
     const id = this.getActiveProjectId();
-    return this.getProject(id) || this.getProjects()[0] || null;
+    return projects.find(p => p.id === id) || projects[0];
   }
 
   createProject({ name, key, description, startDate, endDate }) {
@@ -415,7 +485,15 @@ class Store {
     if (data.projects.find(p => p.key === key)) return { error: 'Project key already exists' };
     const project = { id: generateId(), name, key: key.toUpperCase(), description, startDate, endDate, createdBy: data.currentUser.id, createdAt: now(), updatedAt: now() };
     data.projects.push(project);
-    data.members.push({ id: generateId(), projectId: project.id, userId: data.currentUser.id, role: 'Owner', addedAt: now() });
+    data.members.push({
+      id: generateId(),
+      projectId: project.id,
+      userId: data.currentUser.id,
+      userName: data.currentUser.name,
+      userEmail: data.currentUser.email,
+      role: 'Owner',
+      addedAt: now()
+    });
     data.activeProjectId = project.id;
     this._save();
     return { data: project };
@@ -433,28 +511,49 @@ class Store {
   // ===== MEMBERS =====
   getMembers(projectId) {
     const data = this._load();
-    return data.members.filter(m => m.projectId === projectId).map(m => {
-      const user = data.users.find(u => u.id === m.userId || (u.email && m.userEmail && u.email.toLowerCase() === m.userEmail.toLowerCase()));
-      return {
-        ...m,
-        userName: user?.name || m.userName || m.userEmail?.split('@')[0] || 'Team Member',
-        userEmail: user?.email || m.userEmail || ''
-      };
-    });
+    const seen = new Set();
+    return data.members
+      .filter(m => m.projectId === projectId)
+      .filter(m => {
+        const key = normalizeEmail(m.userEmail) || m.userId || m.id;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map(m => {
+        const user = data.users.find(u => u.id === m.userId || (u.email && m.userEmail && normalizeEmail(u.email) === normalizeEmail(m.userEmail)));
+        return {
+          ...m,
+          userName: user?.name || m.userName || m.userEmail?.split('@')[0] || 'Team Member',
+          userEmail: user?.email || m.userEmail || ''
+        };
+      });
   }
 
   addMember(projectId, email, role) {
     const data = this._load();
-    const cleanEmail = (email || '').trim().toLowerCase();
+    if (!data.currentUser) return { error: 'Authentication required.' };
+
+    const cleanEmail = normalizeEmail(email);
     if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
       return { error: 'Please enter a valid email address.' };
     }
 
+    const project = data.projects.find(p => p.id === projectId);
+    if (!project) return { error: 'Project not found.' };
+
+    const myRole = this.getUserRole(projectId);
+    if (myRole !== 'Owner') {
+      return { error: 'Forbidden: Only project owners can add team members.' };
+    }
+
+    const assignedRole = VALID_ROLES.includes(role) ? role : 'Developer';
+
     // Check if user is already a member of this project
     const isAlreadyMember = data.members.some(m =>
       m.projectId === projectId &&
-      ((m.userEmail && m.userEmail.toLowerCase() === cleanEmail) ||
-       (m.userId && data.users.some(u => u.id === m.userId && u.email && u.email.toLowerCase() === cleanEmail)))
+      ((m.userEmail && normalizeEmail(m.userEmail) === cleanEmail) ||
+       (m.userId && data.users.some(u => u.id === m.userId && u.email && normalizeEmail(u.email) === cleanEmail)))
     );
 
     if (isAlreadyMember) {
@@ -462,7 +561,7 @@ class Store {
     }
 
     // STRICT POLICY: Only users who have already signed up can be added to the project team
-    const user = data.users.find(u => (u.email || '').toLowerCase() === cleanEmail);
+    const user = data.users.find(u => normalizeEmail(u.email) === cleanEmail);
     if (!user) {
       return {
         error: `No registered account found for "${cleanEmail}". Only users who have already signed up can be added to the team. Please send them an invitation link so they can create an account and join.`
@@ -475,7 +574,8 @@ class Store {
       userId: user.id,
       userName: user.name,
       userEmail: cleanEmail,
-      role: role || 'Developer',
+      role: assignedRole,
+      addedVia: 'direct',
       addedAt: now()
     };
     data.members.push(member);
@@ -483,7 +583,7 @@ class Store {
     this.addAuditLog({
       type: 'MEMBER_ADDED',
       title: `Team Member Added: ${user.name}`,
-      details: `${user.email} was assigned role: ${member.role}`,
+      details: `${user.email} was added directly to project [${project.key}] with role: ${member.role}`,
       author: data.currentUser?.name || 'Workspace Owner',
       icon: 'person_add',
       color: 'text-secondary'
@@ -495,28 +595,79 @@ class Store {
 
   updateMemberRole(memberId, role) {
     const data = this._load();
-    const idx = data.members.findIndex(m => m.id === memberId);
-    if (idx === -1) return { error: 'Member not found' };
-    data.members[idx].role = role;
+    if (!data.currentUser) return { error: 'Authentication required.' };
+    if (!VALID_ROLES.includes(role)) return { error: `Invalid project role: ${role}` };
+
+    const member = data.members.find(m => m.id === memberId);
+    if (!member) return { error: 'Member not found' };
+
+    const myRole = this.getUserRole(member.projectId);
+    if (myRole !== 'Owner') {
+      return { error: 'Forbidden: Only project owners can change team roles.' };
+    }
+
+    if (member.role === 'Owner' && role !== 'Owner') {
+      const owners = data.members.filter(m => m.projectId === member.projectId && m.role === 'Owner');
+      if (owners.length <= 1) return { error: 'Cannot demote the last owner of this project' };
+    }
+
+    const oldRole = member.role;
+    member.role = role;
+    if (!member.userName || !member.userEmail) {
+      const user = data.users.find(u => u.id === member.userId || (u.email && member.userEmail && normalizeEmail(u.email) === normalizeEmail(member.userEmail)));
+      if (user) {
+        member.userName = user.name;
+        member.userEmail = user.email;
+      }
+    }
+
+    this.addAuditLog({
+      type: 'MEMBER_ROLE_CHANGED',
+      title: `Project Role Changed: ${member.userName || member.userEmail}`,
+      details: `${member.userEmail} role changed from ${oldRole} to ${role}`,
+      author: data.currentUser.name,
+      icon: 'manage_accounts',
+      color: 'text-secondary'
+    });
+
     this._save();
-    return { data: data.members[idx] };
+    return { data: member };
   }
 
   removeMember(memberId) {
     const data = this._load();
+    if (!data.currentUser) return { error: 'Authentication required.' };
+
     const member = data.members.find(m => m.id === memberId);
     if (!member) return { error: 'Member not found' };
+
+    const myRole = this.getUserRole(member.projectId);
+    if (myRole !== 'Owner') {
+      return { error: 'Forbidden: Only project owners can remove team members.' };
+    }
+
     const owners = data.members.filter(m => m.projectId === member.projectId && m.role === 'Owner');
     if (member.role === 'Owner' && owners.length <= 1) return { error: 'Cannot remove the last owner' };
+
     data.members = data.members.filter(m => m.id !== memberId);
+
+    this.addAuditLog({
+      type: 'MEMBER_REMOVED',
+      title: `Team Member Removed: ${member.userName || member.userEmail}`,
+      details: `${member.userEmail} was removed from the project`,
+      author: data.currentUser.name,
+      icon: 'person_remove',
+      color: 'text-status-defect'
+    });
+
     this._save();
     return { data: true };
   }
 
   getUserRole(projectId) {
     const data = this._load();
-    if (!data.currentUser) return null;
-    const m = data.members.find(m => m.projectId === projectId && m.userId === data.currentUser.id);
+    if (!projectId || !data.currentUser) return null;
+    const m = data.members.find(m => m.projectId === projectId && memberMatchesUser(m, data.currentUser));
     return m ? m.role : null;
   }
 
@@ -525,21 +676,26 @@ class Store {
     const data = this._load();
     if (!data.currentUser) return { error: 'Authentication required.' };
 
+    const project = data.projects.find(p => p.id === projectId);
+    if (!project) return { error: 'Project not found.' };
+
     const myRole = this.getUserRole(projectId);
     if (myRole !== 'Owner') {
       return { error: 'Forbidden: Only project owners can invite new members.' };
     }
 
-    const cleanEmail = (email || '').trim().toLowerCase();
+    const cleanEmail = normalizeEmail(email);
     if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
       return { error: 'Please enter a valid email address.' };
     }
 
+    const invitedRole = VALID_ROLES.includes(role) ? role : 'Developer';
+
     // Check if user is already an active member of this project
     const isAlreadyMember = data.members.some(m =>
       m.projectId === projectId &&
-      ((m.userEmail && m.userEmail.toLowerCase() === cleanEmail) ||
-       (m.userId && data.users.some(u => u.id === m.userId && u.email && u.email.toLowerCase() === cleanEmail)))
+      ((m.userEmail && normalizeEmail(m.userEmail) === cleanEmail) ||
+       (m.userId && data.users.some(u => u.id === m.userId && u.email && normalizeEmail(u.email) === cleanEmail)))
     );
 
     if (isAlreadyMember) {
@@ -551,7 +707,7 @@ class Store {
     const nowMs = Date.now();
     const existingPending = data.invitations.find(inv =>
       inv.projectId === projectId &&
-      inv.inviteeEmail.toLowerCase() === cleanEmail &&
+      normalizeEmail(inv.inviteeEmail) === cleanEmail &&
       inv.status === 'Pending' &&
       new Date(inv.expiresAt).getTime() > nowMs
     );
@@ -560,19 +716,26 @@ class Store {
       return { error: `A pending invitation has already been sent to "${cleanEmail}".` };
     }
 
-    const project = this.getProject(projectId);
+    // Carry a roster snapshot in the token so a recipient on another device can
+    // resolve the project team even though project data is stored per-browser.
+    const team = this.getMembers(projectId)
+      .filter(m => normalizeEmail(m.userEmail) && normalizeEmail(m.userEmail) !== cleanEmail)
+      .map(m => ({ id: m.userId || null, name: m.userName, email: normalizeEmail(m.userEmail), role: m.role }));
+
     const invId = 'inv-' + generateId().slice(0, 8);
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     const token = encodeInviteToken({
       id: invId,
       projectId,
-      projectName: project ? project.name : 'DevTrack Platform',
-      projectKey: project ? project.key : 'DEV',
-      projectDesc: project?.description || '',
+      projectName: project.name,
+      projectKey: project.key,
+      projectDesc: project.description || '',
+      inviterId: data.currentUser.id,
       inviterName: data.currentUser.name,
       inviterEmail: data.currentUser.email,
       inviteeEmail: cleanEmail,
-      role: role || 'Developer',
+      role: invitedRole,
+      team,
       expiresAt,
       createdAt: now()
     });
@@ -580,13 +743,13 @@ class Store {
     const invitation = {
       id: invId,
       projectId,
-      projectName: project ? project.name : 'DevTrack Platform',
-      projectKey: project ? project.key : 'DEV',
+      projectName: project.name,
+      projectKey: project.key,
       inviterId: data.currentUser.id,
       inviterName: data.currentUser.name,
       inviterEmail: data.currentUser.email,
       inviteeEmail: cleanEmail,
-      role: role || 'Developer',
+      role: invitedRole,
       status: 'Pending',
       token,
       expiresAt,
@@ -615,9 +778,9 @@ class Store {
 
   getUserInvitations(email) {
     const data = this._load();
-    const clean = (email || data.currentUser?.email || '').trim().toLowerCase();
+    const clean = normalizeEmail(email || data.currentUser?.email);
     if (!clean) return [];
-    return (data.invitations || []).filter(i => (i.inviteeEmail || '').toLowerCase() === clean);
+    return (data.invitations || []).filter(i => normalizeEmail(i.inviteeEmail) === clean);
   }
 
   getPendingInvitationsCount(email) {
@@ -644,10 +807,11 @@ class Store {
             projectId: decoded.projectId,
             projectName: decoded.projectName || 'DevTrack Platform',
             projectKey: decoded.projectKey || 'DEV',
+            inviterId: decoded.inviterId || '',
             inviterName: decoded.inviterName || 'Project Lead',
             inviterEmail: decoded.inviterEmail || 'lead@devtrack.io',
             inviteeEmail: decoded.inviteeEmail,
-            role: decoded.role || 'Developer',
+            role: VALID_ROLES.includes(decoded.role) ? decoded.role : 'Developer',
             status: isExp ? 'Expired' : 'Pending',
             token: clean,
             expiresAt: decoded.expiresAt,
@@ -672,6 +836,7 @@ class Store {
             };
             data.projects.push(proj);
           }
+          this._hydrateInvitationTeam(data, decoded);
         }
         this._save();
       }
@@ -682,6 +847,48 @@ class Store {
       this._save();
     }
     return inv || null;
+  }
+
+  _hydrateInvitationTeam(data, decoded) {
+    if (!decoded || !decoded.projectId) return;
+    if (!data.members) data.members = [];
+
+    const projectId = decoded.projectId;
+    const addedAt = decoded.createdAt || now();
+
+    const addRosterMember = (entry, fallbackRole = 'Developer') => {
+      const email = normalizeEmail(entry.email);
+      if (!email) return;
+      const exists = data.members.some(m =>
+        m.projectId === projectId &&
+        (normalizeEmail(m.userEmail) === email || (entry.id && m.userId === entry.id))
+      );
+      if (exists) return;
+
+      data.members.push({
+        id: 'mem-' + generateId().slice(0, 8),
+        projectId,
+        userId: entry.id || null,
+        userName: entry.name || email.split('@')[0],
+        userEmail: email,
+        role: VALID_ROLES.includes(entry.role) ? entry.role : fallbackRole,
+        addedVia: 'invite-snapshot',
+        addedAt
+      });
+    };
+
+    (decoded.team || []).forEach(entry => addRosterMember(entry));
+
+    // Older invitation tokens have no roster snapshot. At minimum preserve the
+    // inviter as the project Owner so the recipient does not see an empty team.
+    if (decoded.inviterEmail) {
+      addRosterMember({
+        id: decoded.inviterId || ('inviter-' + normalizeEmail(decoded.inviterEmail).replace(/[^a-z0-9]/g, '-')),
+        name: decoded.inviterName || 'Project Lead',
+        email: decoded.inviterEmail,
+        role: 'Owner'
+      }, 'Owner');
+    }
   }
 
   getInvitation(id) {
@@ -701,12 +908,7 @@ class Store {
     }
 
     // STRICT POLICY: Only users who have signed up can join
-    const isRegistered = (data.users || []).some(u =>
-      u.id === data.currentUser.id ||
-      (u.email && data.currentUser.email && u.email.toLowerCase() === data.currentUser.email.toLowerCase())
-    ) || data.currentUser.isFirebase;
-
-    if (!isRegistered) {
+    if (!isRegisteredUser(data, data.currentUser)) {
       return { error: 'Only signed-up users can join a project. Please create an account or sign in first.' };
     }
 
@@ -719,7 +921,7 @@ class Store {
       return { error: 'This invitation has expired. Please ask the project owner for a new invitation.' };
     }
 
-    if (data.currentUser.email.toLowerCase() !== inv.inviteeEmail.toLowerCase()) {
+    if (normalizeEmail(data.currentUser.email) !== normalizeEmail(inv.inviteeEmail)) {
       return {
         error: `This invitation was issued to "${inv.inviteeEmail}". You are currently signed in as "${data.currentUser.email}". Please switch to the invited account.`
       };
@@ -731,8 +933,7 @@ class Store {
 
     // Check if already a member
     const isAlreadyMember = data.members.some(m =>
-      m.projectId === inv.projectId &&
-      (m.userId === data.currentUser.id || (m.userEmail && m.userEmail.toLowerCase() === data.currentUser.email.toLowerCase()))
+      m.projectId === inv.projectId && memberMatchesUser(m, data.currentUser)
     );
     if (isAlreadyMember) {
       inv.status = 'Accepted';
@@ -746,8 +947,9 @@ class Store {
       projectId: inv.projectId,
       userId: data.currentUser.id,
       userName: data.currentUser.name,
-      userEmail: data.currentUser.email,
-      role: inv.role || 'Developer',
+      userEmail: normalizeEmail(data.currentUser.email),
+      role: VALID_ROLES.includes(inv.role) ? inv.role : 'Developer',
+      addedVia: 'invitation',
       addedAt: now()
     };
     data.members.push(member);
@@ -758,7 +960,7 @@ class Store {
     this.addAuditLog({
       type: 'INVITATION_ACCEPTED',
       title: `Team Member Joined: ${data.currentUser.name}`,
-      details: `Accepted invitation to project [${inv.projectKey}] as ${inv.role}`,
+      details: `Accepted invitation to project [${inv.projectKey}] as ${member.role}`,
       author: data.currentUser.name,
       icon: 'how_to_reg',
       color: 'text-status-passed'
@@ -775,7 +977,7 @@ class Store {
     const inv = this.getInvitationByToken(idOrToken) || (data.invitations || []).find(i => i.id === idOrToken || i.token === idOrToken);
     if (!inv) return { error: 'Invitation not found.' };
 
-    if (data.currentUser.email.toLowerCase() !== inv.inviteeEmail.toLowerCase()) {
+    if (normalizeEmail(data.currentUser.email) !== normalizeEmail(inv.inviteeEmail)) {
       return { error: 'You are not authorized to decline this invitation.' };
     }
 
@@ -1070,4 +1272,22 @@ function countBy(arr, field) {
 }
 
 export const store = new Store();
+
+// Keep multiple tabs of the same browser in sync. localStorage is shared per
+// origin, so a membership accepted in the invitee tab should immediately
+// refresh the owner's roster in another tab.
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('storage', (event) => {
+    if (event.key !== STORE_KEY) return;
+    try {
+      store._data = event.newValue ? JSON.parse(event.newValue) : null;
+      if (!store._data) store._data = getDefaultData();
+      store._listeners.forEach(fn => fn(store._data));
+      window.dispatchEvent(new Event('devtrack:store-sync'));
+    } catch {
+      // Ignore malformed cross-tab payloads and keep the current state.
+    }
+  });
+}
+
 export { generateId };

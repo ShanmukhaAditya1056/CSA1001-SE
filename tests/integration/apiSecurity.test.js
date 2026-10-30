@@ -139,6 +139,16 @@ export async function runApiSecurityTests() {
   assert.strictEqual(duplicateAddRes.status, 409, 'Duplicate member addition must return 409 Conflict');
   console.log('✓ Duplicate team member addition rejected with 409 Conflict');
 
+  // Only project owners may add team members (Developer must be denied)
+  const nonOwnerAddRes = await request('/api/v1/projects/proj-001/members', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer usr-dev' },
+    body: { email: 'outsider@othercorp.com', role: 'Developer' }
+  });
+  assert.strictEqual(nonOwnerAddRes.status, 403, 'Non-owner adding a member must return 403');
+  assert.strictEqual(nonOwnerAddRes.body.error.code, 'FORBIDDEN');
+  console.log('✓ Non-owner team member addition blocked with 403 Forbidden');
+
   // 7. Project Invitations Security, Inbox & Accept/Decline Workflow
   console.log('Testing: Project Invitations Security, Central Inbox & Accept/Decline Flow...');
   // A. Non-owner cannot create invitation (e.g. usr-dev or usr-viewer)

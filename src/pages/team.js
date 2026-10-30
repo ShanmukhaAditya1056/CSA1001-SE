@@ -35,10 +35,17 @@ export function renderTeam(container) {
         </div>
 
         <div class="flex items-center gap-3">
-          <button id="add-member-btn" class="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary hover:bg-primary-fixed text-on-primary font-semibold text-body-md transition-all shadow-md shadow-primary/20 active:scale-95 cursor-pointer">
-            <span class="material-symbols-outlined text-[20px]">person_add</span>
-            <span>+ Invite Member</span>
-          </button>
+          ${isOwner ? `
+            <button id="add-member-btn" class="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary hover:bg-primary-fixed text-on-primary font-semibold text-body-md transition-all shadow-md shadow-primary/20 active:scale-95 cursor-pointer">
+              <span class="material-symbols-outlined text-[20px]">person_add</span>
+              <span>+ Invite Member</span>
+            </button>
+          ` : `
+            <span class="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-panel border border-border-subtle text-text-muted text-body-sm font-jetbrains">
+              <span class="material-symbols-outlined text-[16px]">lock</span>
+              <span>Owner-only team management</span>
+            </span>
+          `}
         </div>
 
       </div>
@@ -91,7 +98,8 @@ export function renderTeam(container) {
 
         <div class="divide-y divide-border-subtle">
           ${members.map(member => {
-            const isMe = store.currentUser?.id === member.userId;
+            const isMe = store.currentUser?.id === member.userId ||
+              (store.currentUser?.email && member.userEmail && store.currentUser.email.toLowerCase() === member.userEmail.toLowerCase());
             const memberUser = store.getUser(member.userId);
             const photo = isMe ? store.currentUser?.photoURL : memberUser?.photoURL;
 
@@ -114,17 +122,21 @@ export function renderTeam(container) {
                 <div class="flex items-center gap-4">
                   <span class="text-body-sm text-text-muted font-jetbrains text-[11px] hidden md:inline">Joined: ${formatDate(member.addedAt)}</span>
 
-                  <!-- Role Selector -->
-                  <select class="member-role-select bg-surface-base text-text-primary font-jetbrains text-body-sm py-1.5 px-3 rounded-lg border border-border-subtle focus:border-primary outline-none" data-id="${member.id}">
-                    <option value="Owner" ${member.role === 'Owner' ? 'selected' : ''}>Owner</option>
-                    <option value="Developer" ${member.role === 'Developer' ? 'selected' : ''}>Developer</option>
-                    <option value="Tester" ${member.role === 'Tester' ? 'selected' : ''}>Tester</option>
-                    <option value="Viewer" ${member.role === 'Viewer' ? 'selected' : ''}>Viewer</option>
-                  </select>
+                  ${isOwner ? `
+                    <!-- Role Selector -->
+                    <select class="member-role-select bg-surface-base text-text-primary font-jetbrains text-body-sm py-1.5 px-3 rounded-lg border border-border-subtle focus:border-primary outline-none" data-id="${member.id}">
+                      <option value="Owner" ${member.role === 'Owner' ? 'selected' : ''}>Owner</option>
+                      <option value="Developer" ${member.role === 'Developer' ? 'selected' : ''}>Developer</option>
+                      <option value="Tester" ${member.role === 'Tester' ? 'selected' : ''}>Tester</option>
+                      <option value="Viewer" ${member.role === 'Viewer' ? 'selected' : ''}>Viewer</option>
+                    </select>
 
-                  <button class="remove-member-btn text-text-muted hover:text-status-defect p-1.5 rounded-lg hover:bg-surface-panel transition-colors" data-id="${member.id}" data-name="${member.userName}">
-                    <span class="material-symbols-outlined text-[18px]">person_remove</span>
-                  </button>
+                    <button class="remove-member-btn text-text-muted hover:text-status-defect p-1.5 rounded-lg hover:bg-surface-panel transition-colors" data-id="${member.id}" data-name="${member.userName}">
+                      <span class="material-symbols-outlined text-[18px]">person_remove</span>
+                    </button>
+                  ` : `
+                    <span class="font-jetbrains text-[11px] font-semibold px-2.5 py-1 rounded-full bg-surface-panel border border-border-subtle text-text-secondary">${member.role}</span>
+                  `}
                 </div>
               </div>
             `;
@@ -286,18 +298,19 @@ export function renderTeam(container) {
 function openAddMemberModal(projectId, onSaved) {
   const allUsers = store.getAllUsers();
   const currentMembers = store.getMembers(projectId);
+  const normalize = (value) => (value || '').trim().toLowerCase();
   const nonMembers = allUsers.filter(u =>
-    !currentMembers.some(m => m.userId === u.id || (m.userEmail && u.email && m.userEmail.toLowerCase() === u.email.toLowerCase()))
+    !currentMembers.some(m => m.userId === u.id || (m.userEmail && u.email && normalize(m.userEmail) === normalize(u.email)))
   );
 
   showModal(`
     <form id="add-member-form" class="space-y-4">
-      <!-- Team Invitation Banner -->
+      <!-- Team Membership Banner -->
       <div class="p-3 rounded-lg bg-surface-base border border-secondary/30 flex items-start gap-2.5">
         <span class="material-symbols-outlined text-secondary text-[20px] shrink-0 mt-0.5">group_add</span>
         <div class="text-[12px]">
-          <span class="font-semibold text-text-primary block">Invite Team Member</span>
-          <span class="text-text-muted">Enter the email of a colleague who has created an account (Google or Firebase). They will immediately be granted project team access with their assigned role.</span>
+          <span id="add-member-mode-title" class="font-semibold text-text-primary block">Add a Registered Teammate</span>
+          <span id="add-member-mode-text" class="text-text-muted">Accounts registered on this device are added to the project immediately. Other emails receive a secure invitation link to join.</span>
         </div>
       </div>
 
@@ -337,7 +350,7 @@ function openAddMemberModal(projectId, onSaved) {
         <datalist id="verified-users-datalist">
           ${nonMembers.map(u => `<option value="${u.email}">${u.name} (Verified)</option>`).join('')}
         </datalist>
-        <p class="text-[11px] text-text-muted mt-1 font-jetbrains">Colleague's registered Google or Firebase account email address</p>
+        <p id="add-member-mode-hint" class="text-[11px] text-text-muted mt-1 font-jetbrains">Known account: added immediately. New email: invitation link required.</p>
       </div>
 
       <div>
@@ -357,37 +370,83 @@ function openAddMemberModal(projectId, onSaved) {
 
       <div class="flex justify-end gap-3 pt-3">
         <button type="button" onclick="window.__closeModal()" class="px-4 py-2 rounded-lg bg-surface-panel text-text-secondary hover:bg-surface-elevated text-body-md">Cancel</button>
-        <button type="submit" class="px-5 py-2 rounded-lg bg-primary text-on-primary font-semibold text-body-md hover:bg-primary-fixed shadow-md shadow-primary/20">Add to Team</button>
+        <button type="submit" id="add-member-submit" class="px-5 py-2 rounded-lg bg-primary text-on-primary font-semibold text-body-md hover:bg-primary-fixed shadow-md shadow-primary/20">Add to Team</button>
       </div>
     </form>
-  `, { title: 'Add Verified Member to Project Team' });
+  `, { title: 'Add Member or Invite to Project Team' });
 
   const emailInput = document.getElementById('mem-email');
   const userSelect = document.getElementById('mem-user-select');
+  const submitBtn = document.getElementById('add-member-submit');
+  const modeTitle = document.getElementById('add-member-mode-title');
+  const modeText = document.getElementById('add-member-mode-text');
+  const modeHint = document.getElementById('add-member-mode-hint');
+  const errorBox = document.getElementById('add-mem-error');
+  const errorText = document.getElementById('add-mem-error-text');
+
+  const findKnownUser = (email) => {
+    const clean = normalize(email);
+    if (!clean) return null;
+    return store.getAllUsers().find(u => normalize(u.email) === clean) || null;
+  };
+
+  const syncMode = () => {
+    const known = findKnownUser(emailInput?.value);
+    if (known) {
+      submitBtn.textContent = 'Add to Team';
+      modeTitle.textContent = 'Add Registered Teammate';
+      modeText.textContent = `${known.name} already has an account on this device and will be added to the project immediately.`;
+      modeHint.textContent = 'This account will be granted access immediately with the selected role.';
+    } else {
+      submitBtn.textContent = 'Send Invitation';
+      modeTitle.textContent = 'Invite a New Teammate';
+      modeText.textContent = 'This email does not match an account on this device. A secure invitation link will be generated for them to sign up and join.';
+      modeHint.textContent = 'Invitation links remain valid for 7 days.';
+    }
+  };
 
   userSelect?.addEventListener('change', (e) => {
     if (e.target.value) {
       emailInput.value = e.target.value;
+      syncMode();
     }
   });
+
+  emailInput?.addEventListener('input', syncMode);
 
   // Quick fill email buttons
   document.querySelectorAll('.quick-fill-email').forEach(btn => {
     btn.addEventListener('click', () => {
       emailInput.value = btn.dataset.email;
       if (userSelect) userSelect.value = btn.dataset.email;
+      syncMode();
     });
   });
 
-  const form = document.getElementById('add-member-form');
-  const errorBox = document.getElementById('add-mem-error');
-  const errorText = document.getElementById('add-mem-error-text');
+  syncMode();
 
+  const form = document.getElementById('add-member-form');
   form?.addEventListener('submit', (e) => {
     e.preventDefault();
     errorBox.classList.add('hidden');
     const email = document.getElementById('mem-email').value.trim();
     const role = document.getElementById('mem-role').value;
+    const knownUser = findKnownUser(email);
+
+    // Registered accounts get immediate project access. Unknown emails must
+    // accept a secure invitation before membership is created.
+    if (knownUser) {
+      const addRes = store.addMember(projectId, email, role);
+      if (addRes.error) {
+        errorText.textContent = addRes.error;
+        errorBox.classList.remove('hidden');
+        return;
+      }
+      closeModal();
+      showToast(`${knownUser.name} added to the project as ${role}.`, 'success');
+      if (onSaved) onSaved();
+      return;
+    }
 
     const res = store.createInvitation(projectId, email, role);
     if (res.error) {

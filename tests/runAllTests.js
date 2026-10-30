@@ -1,6 +1,7 @@
 // DevTrack Automated Test Suite Runner (gemini.md Section 10 & Stage H)
 import { runBusinessRulesTests } from './unit/businessRules.test.js';
 import { runClientInviteFlowTests } from './unit/clientInviteFlow.test.js';
+import { runTeamMembershipTests } from './unit/teamMembership.test.js';
 import { runApiSecurityTests } from './integration/apiSecurity.test.js';
 import { runLifecycleFlowTests } from './integration/lifecycleFlow.test.js';
 
@@ -12,7 +13,7 @@ async function main() {
   console.log('===============================================================');
 
   let passedSuites = 0;
-  let totalSuites = 4;
+  let totalSuites = 5;
 
   try {
     // 0. Ensure API Server is running
@@ -36,11 +37,15 @@ async function main() {
     await runClientInviteFlowTests();
     passedSuites++;
 
-    // 3. API Security & Project Isolation Tests
+    // 3. Project-Scoped Team Membership, Roles & Direct Adds
+    await runTeamMembershipTests();
+    passedSuites++;
+
+    // 4. API Security & Project Isolation Tests
     await runApiSecurityTests();
     passedSuites++;
 
-    // 4. Complete 12-Step Lifecycle End-to-End Smoke Journey
+    // 5. Complete 12-Step Lifecycle End-to-End Smoke Journey
     await runLifecycleFlowTests();
     passedSuites++;
 
@@ -49,6 +54,7 @@ async function main() {
     console.log(`🎉 ALL TEST SUITES PASSED! (${passedSuites}/${totalSuites} suites passed in ${duration}s)`);
     console.log('   - Business Rules Unit Tests: 8/8 suites passed');
     console.log('   - Client Invitation & Token Tests: 10/10 passed');
+    console.log('   - Team Membership, Roles & Isolation: 9/9 passed');
     console.log('   - API Security & Isolation: 7/7 suites passed');
     console.log('   - Lifecycle Journey: 12/12 steps passed');
     console.log('===============================================================');

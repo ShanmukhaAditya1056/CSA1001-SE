@@ -541,6 +541,10 @@ export const server = http.createServer(async (req, res) => {
       }
 
       if (subpath === '/members' && method === 'POST') {
+        if (access.role !== 'Owner') {
+          sendJson(res, 403, null, { code: 'FORBIDDEN', message: 'Forbidden: Only project owners can add team members.' });
+          return;
+        }
         const body = await readBody(req);
         const cleanEmail = (body.email || '').trim().toLowerCase();
         if (!cleanEmail || !cleanEmail.includes('@')) {
@@ -571,7 +575,7 @@ export const server = http.createServer(async (req, res) => {
           id: generateId('mem'),
           projectId,
           userId: registeredUser.id,
-          role: body.role || 'Developer'
+          role: ['Owner', 'Developer', 'Tester', 'Viewer'].includes(body.role) ? body.role : 'Developer'
         };
         DB.members.push(newMember);
         sendJson(res, 201, { ...newMember, userName: registeredUser.name, userEmail: registeredUser.email });
