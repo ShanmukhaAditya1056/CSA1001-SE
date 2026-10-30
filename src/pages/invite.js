@@ -2,9 +2,10 @@
 // Implements secure invitation links with explicit Accept/Decline workflow
 import { store } from '../store.js';
 import { avatar, formatDate, showToast, showConfirm } from '../ui.js';
+import { extractInviteToken } from '../main.js';
 
 export function renderInvite(container, token) {
-  const cleanToken = (token || '').trim();
+  const cleanToken = (token || extractInviteToken() || '').trim();
   const invitation = store.getInvitationByToken(cleanToken);
   const currentUser = store.currentUser;
 

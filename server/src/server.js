@@ -364,7 +364,30 @@ export const server = http.createServer(async (req, res) => {
     const tokenLookupMatch = pathname.match(/^\/api\/v1\/invitations\/token\/([^/]+)$/);
     if (tokenLookupMatch && method === 'GET') {
       const token = tokenLookupMatch[1];
-      const inv = DB.invitations.find(i => i.token === token);
+      let inv = DB.invitations.find(i => i.token === token);
+      if (!inv && token.startsWith('inv_')) {
+        try {
+          const raw = token.slice(4);
+          const d = JSON.parse(Buffer.from(raw, 'base64url').toString('utf-8'));
+          if (d && d.pid && d.email) {
+            inv = {
+              id: d.id,
+              projectId: d.pid,
+              projectName: d.pname,
+              projectKey: d.pkey,
+              inviterName: d.iname,
+              inviterEmail: d.iemail,
+              inviteeEmail: d.email,
+              role: d.role,
+              status: 'Pending',
+              expiresAt: d.exp,
+              createdAt: d.iat,
+              token: token
+            };
+            DB.invitations.push(inv);
+          }
+        } catch {}
+      }
       if (!inv) {
         sendJson(res, 404, null, { code: 'NOT_FOUND', message: 'Invitation not found or invalid token.' });
         return;
@@ -398,7 +421,30 @@ export const server = http.createServer(async (req, res) => {
 
       const invId = invActionMatch[1];
       const action = invActionMatch[2];
-      const inv = DB.invitations.find(i => i.id === invId || i.token === invId);
+      let inv = DB.invitations.find(i => i.id === invId || i.token === invId);
+      if (!inv && invId.startsWith('inv_')) {
+        try {
+          const raw = invId.slice(4);
+          const d = JSON.parse(Buffer.from(raw, 'base64url').toString('utf-8'));
+          if (d && d.pid && d.email) {
+            inv = {
+              id: d.id,
+              projectId: d.pid,
+              projectName: d.pname,
+              projectKey: d.pkey,
+              inviterName: d.iname,
+              inviterEmail: d.iemail,
+              inviteeEmail: d.email,
+              role: d.role,
+              status: 'Pending',
+              expiresAt: d.exp,
+              createdAt: d.iat,
+              token: invId
+            };
+            DB.invitations.push(inv);
+          }
+        } catch {}
+      }
       if (!inv) {
         sendJson(res, 404, null, { code: 'NOT_FOUND', message: 'Invitation not found.' });
         return;
@@ -578,11 +624,26 @@ export const server = http.createServer(async (req, res) => {
 
         const allowedRoles = ['Owner', 'Developer', 'Tester', 'Viewer'];
         const role = allowedRoles.includes(body.role) ? body.role : 'Developer';
-        const token = 'inv_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
+        const invId = generateId('inv');
         const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+        const createdAt = new Date().toISOString();
+        const tokenPayload = {
+          id: invId,
+          pid: projectId,
+          pname: access.project.name,
+          pkey: access.project.key,
+          pdesc: access.project.description || '',
+          iname: user.name,
+          iemail: user.email,
+          email: cleanEmail,
+          role,
+          exp: expiresAt,
+          iat: createdAt
+        };
+        const token = 'inv_' + Buffer.from(JSON.stringify(tokenPayload)).toString('base64url');
 
         const invitation = {
-          id: generateId('inv'),
+          id: invId,
           projectId,
           projectName: access.project.name,
           projectKey: access.project.key,
@@ -594,7 +655,7 @@ export const server = http.createServer(async (req, res) => {
           status: 'Pending',
           token,
           expiresAt,
-          createdAt: new Date().toISOString()
+          createdAt
         };
 
         DB.invitations.push(invitation);

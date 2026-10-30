@@ -45,7 +45,75 @@ function getDefaultData() {
 }
 
 
+export function encodeInviteToken(data) {
+  try {
+    const payload = {
+      id: data.id,
+      pid: data.projectId,
+      pname: data.projectName,
+      pkey: data.projectKey,
+      pdesc: data.projectDesc || '',
+      iname: data.inviterName,
+      iemail: data.inviterEmail,
+      email: (data.inviteeEmail || '').toLowerCase(),
+      role: data.role,
+      exp: data.expiresAt,
+      iat: data.createdAt
+    };
+    const jsonStr = JSON.stringify(payload);
+    let b64 = '';
+    if (typeof Buffer !== 'undefined') {
+      b64 = Buffer.from(jsonStr, 'utf-8').toString('base64url');
+    } else {
+      b64 = btoa(unescape(encodeURIComponent(jsonStr)))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+    }
+    return `inv_${b64}`;
+  } catch (err) {
+    return 'inv_' + (data.id || Date.now());
+  }
+}
+
+export function decodeInviteToken(token) {
+  if (!token || typeof token !== 'string') return null;
+  const clean = decodeURIComponent(token).trim();
+  if (!clean.startsWith('inv_')) return null;
+  try {
+    const raw = clean.slice(4);
+    let jsonStr = '';
+    if (typeof Buffer !== 'undefined') {
+      jsonStr = Buffer.from(raw, 'base64url').toString('utf-8');
+    } else {
+      const b64 = raw.replace(/-/g, '+').replace(/_/g, '/');
+      const pad = b64.length % 4;
+      const paddedB64 = pad ? b64 + '='.repeat(4 - pad) : b64;
+      jsonStr = decodeURIComponent(escape(atob(paddedB64)));
+    }
+    const d = JSON.parse(jsonStr);
+    if (!d || !d.pid || !d.email) return null;
+    return {
+      id: d.id,
+      projectId: d.pid,
+      projectName: d.pname,
+      projectKey: d.pkey,
+      projectDesc: d.pdesc,
+      inviterName: d.iname,
+      inviterEmail: d.iemail,
+      inviteeEmail: d.email,
+      role: d.role,
+      expiresAt: d.exp,
+      createdAt: d.iat,
+      token: clean
+    };
+  } catch (err) {
+    return null;
+  }
+}
+
 class Store {
+
   constructor() {
     this._data = null;
     this._listeners = new Set();
@@ -167,7 +235,8 @@ class Store {
     if (data.projects && data.projects.length > 0) {
       const activeProjId = data.activeProjectId || data.projects[0].id;
       const existingMembers = data.members.filter(m => m.projectId === activeProjId);
-      if (existingMembers.length === 0) {
+      const hasPendingInvite = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('pending_invite_token');
+      if (existingMembers.length === 0 && data.users.length === 1 && !hasPendingInvite) {
         data.members.push({
           id: 'mem-' + generateId().slice(0, 8),
           projectId: activeProjId,
@@ -240,9 +309,10 @@ class Store {
       let member = data.members.find(m => m.projectId === activeProjId && (m.userId === userId || (m.userEmail && m.userEmail.toLowerCase() === email.toLowerCase())));
       if (!member) {
         const existingMembers = data.members.filter(m => m.projectId === activeProjId);
+        const hasPendingInvite = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('pending_invite_token');
         // Only the workspace creator / initial user becomes Owner automatically.
         // Subsequent users who create accounts are registered users and must be explicitly added to teams.
-        if (existingMembers.length === 0) {
+        if (existingMembers.length === 0 && data.users.length === 1 && !hasPendingInvite) {
           data.members.push({
             id: 'mem-' + generateId().slice(0, 8),
             projectId: activeProjId,
@@ -391,25 +461,12 @@ class Store {
       return { error: `User with email "${cleanEmail}" is already a member of this project.` };
     }
 
-    // Find existing user or link their registered account
-    let user = data.users.find(u => (u.email || '').toLowerCase() === cleanEmail);
+    // STRICT POLICY: Only users who have already signed up can be added to the project team
+    const user = data.users.find(u => (u.email || '').toLowerCase() === cleanEmail);
     if (!user) {
-      const namePart = cleanEmail.split('@')[0];
-      const displayName = namePart
-        .split(/[._-]/)
-        .filter(Boolean)
-        .map(s => s.charAt(0).toUpperCase() + s.slice(1))
-        .join(' ') || namePart;
-
-      user = {
-        id: 'usr-' + generateId().slice(0, 8),
-        name: displayName,
-        email: cleanEmail,
-        isFirebase: true,
-        emailVerified: true,
-        createdAt: now()
+      return {
+        error: `No registered account found for "${cleanEmail}". Only users who have already signed up can be added to the team. Please send them an invitation link so they can create an account and join.`
       };
-      data.users.push(user);
     }
 
     const member = {
@@ -504,11 +561,24 @@ class Store {
     }
 
     const project = this.getProject(projectId);
-    const token = 'inv_' + generateId().replace(/-/g, '').slice(0, 16) + '_' + Math.random().toString(36).slice(2, 8);
+    const invId = 'inv-' + generateId().slice(0, 8);
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const token = encodeInviteToken({
+      id: invId,
+      projectId,
+      projectName: project ? project.name : 'DevTrack Platform',
+      projectKey: project ? project.key : 'DEV',
+      projectDesc: project?.description || '',
+      inviterName: data.currentUser.name,
+      inviterEmail: data.currentUser.email,
+      inviteeEmail: cleanEmail,
+      role: role || 'Developer',
+      expiresAt,
+      createdAt: now()
+    });
 
     const invitation = {
-      id: 'inv-' + generateId().slice(0, 8),
+      id: invId,
       projectId,
       projectName: project ? project.name : 'DevTrack Platform',
       projectKey: project ? project.key : 'DEV',
@@ -558,7 +628,55 @@ class Store {
 
   getInvitationByToken(token) {
     const data = this._load();
-    const inv = (data.invitations || []).find(i => i.token === token);
+    if (!token || typeof token !== 'string') return null;
+    const clean = decodeURIComponent(token).trim();
+    let inv = (data.invitations || []).find(i => i.token === clean || i.token === token);
+
+    // If not found in local store, try decoding self-describing token across devices
+    if (!inv) {
+      const decoded = decodeInviteToken(clean);
+      if (decoded) {
+        inv = (data.invitations || []).find(i => i.id === decoded.id || i.token === clean);
+        if (!inv) {
+          const isExp = new Date(decoded.expiresAt).getTime() <= Date.now();
+          inv = {
+            id: decoded.id || ('inv-' + generateId().slice(0, 8)),
+            projectId: decoded.projectId,
+            projectName: decoded.projectName || 'DevTrack Platform',
+            projectKey: decoded.projectKey || 'DEV',
+            inviterName: decoded.inviterName || 'Project Lead',
+            inviterEmail: decoded.inviterEmail || 'lead@devtrack.io',
+            inviteeEmail: decoded.inviteeEmail,
+            role: decoded.role || 'Developer',
+            status: isExp ? 'Expired' : 'Pending',
+            token: clean,
+            expiresAt: decoded.expiresAt,
+            createdAt: decoded.createdAt || now()
+          };
+          if (!data.invitations) data.invitations = [];
+          data.invitations.unshift(inv);
+        }
+
+        // Ensure project stub exists in local store so project details can be resolved
+        if (decoded.projectId) {
+          if (!data.projects) data.projects = [];
+          let proj = data.projects.find(p => p.id === decoded.projectId);
+          if (!proj) {
+            proj = {
+              id: decoded.projectId,
+              name: decoded.projectName || 'DevTrack Project',
+              key: decoded.projectKey || 'DEV',
+              description: decoded.projectDesc || 'Shared Project Workspace',
+              createdAt: decoded.createdAt || now(),
+              updatedAt: decoded.createdAt || now()
+            };
+            data.projects.push(proj);
+          }
+        }
+        this._save();
+      }
+    }
+
     if (inv && inv.status === 'Pending' && new Date(inv.expiresAt).getTime() <= Date.now()) {
       inv.status = 'Expired';
       this._save();
@@ -568,14 +686,31 @@ class Store {
 
   getInvitation(id) {
     const data = this._load();
-    return (data.invitations || []).find(i => i.id === id || i.token === id) || null;
+    if (!id) return null;
+    let inv = (data.invitations || []).find(i => i.id === id || i.token === id);
+    if (!inv && typeof id === 'string' && id.startsWith('inv_')) {
+      inv = this.getInvitationByToken(id);
+    }
+    return inv || null;
   }
 
   acceptInvitation(idOrToken) {
     const data = this._load();
-    if (!data.currentUser) return { error: 'Authentication required. Please sign in to accept.' };
+    if (!data.currentUser) {
+      return { error: 'Authentication required. Please sign in or create an account to accept this invitation.' };
+    }
 
-    const inv = (data.invitations || []).find(i => i.id === idOrToken || i.token === idOrToken);
+    // STRICT POLICY: Only users who have signed up can join
+    const isRegistered = (data.users || []).some(u =>
+      u.id === data.currentUser.id ||
+      (u.email && data.currentUser.email && u.email.toLowerCase() === data.currentUser.email.toLowerCase())
+    ) || data.currentUser.isFirebase;
+
+    if (!isRegistered) {
+      return { error: 'Only signed-up users can join a project. Please create an account or sign in first.' };
+    }
+
+    const inv = this.getInvitationByToken(idOrToken) || (data.invitations || []).find(i => i.id === idOrToken || i.token === idOrToken);
     if (!inv) return { error: 'Invitation not found or invalid token.' };
 
     if (new Date(inv.expiresAt).getTime() <= Date.now()) {
@@ -595,7 +730,10 @@ class Store {
     }
 
     // Check if already a member
-    const isAlreadyMember = data.members.some(m => m.projectId === inv.projectId && m.userId === data.currentUser.id);
+    const isAlreadyMember = data.members.some(m =>
+      m.projectId === inv.projectId &&
+      (m.userId === data.currentUser.id || (m.userEmail && m.userEmail.toLowerCase() === data.currentUser.email.toLowerCase()))
+    );
     if (isAlreadyMember) {
       inv.status = 'Accepted';
       this._save();
@@ -634,7 +772,7 @@ class Store {
     const data = this._load();
     if (!data.currentUser) return { error: 'Authentication required.' };
 
-    const inv = (data.invitations || []).find(i => i.id === idOrToken || i.token === idOrToken);
+    const inv = this.getInvitationByToken(idOrToken) || (data.invitations || []).find(i => i.id === idOrToken || i.token === idOrToken);
     if (!inv) return { error: 'Invitation not found.' };
 
     if (data.currentUser.email.toLowerCase() !== inv.inviteeEmail.toLowerCase()) {

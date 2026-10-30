@@ -554,19 +554,53 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
+export function extractInviteToken() {
+  if (typeof window !== 'undefined') {
+    // 1. Check URL query params (?token=...)
+    if (window.location.search) {
+      const urlParams = new URLSearchParams(window.location.search);
+      const qToken = urlParams.get('token');
+      if (qToken) return decodeURIComponent(qToken).trim();
+    }
+    // 2. Check URL hash (#/invite?token=... or #/invite/...)
+    const hash = window.location.hash || '';
+    if (hash.includes('token=')) {
+      const match = hash.match(/[?&]token=([^&]+)/);
+      if (match && match[1]) return decodeURIComponent(match[1]).trim();
+    }
+    if (hash.startsWith('#/invite/')) {
+      const tokenPart = hash.replace('#/invite/', '').split('?')[0].split('&')[0];
+      if (tokenPart) return decodeURIComponent(tokenPart).trim();
+    }
+  }
+  // 3. Fallback to sessionStorage
+  if (typeof sessionStorage !== 'undefined') {
+    const stored = sessionStorage.getItem('pending_invite_token');
+    if (stored) return stored.trim();
+  }
+  return '';
+}
+
+export function redirectAfterAuth() {
+  const pendingToken = extractInviteToken();
+  if (pendingToken) {
+    window.location.hash = `#/invite?token=${encodeURIComponent(pendingToken)}`;
+  } else {
+    window.location.hash = '#/dashboard';
+  }
+}
+
 function route() {
   const hash = window.location.hash || '#/dashboard';
+  const detectedToken = extractInviteToken();
 
-  // Handle Secure Invitation Links (#/invite?token=... or #/invite/...)
-  if (hash.startsWith('#/invite')) {
-    let token = '';
-    if (hash.includes('?token=')) {
-      token = hash.split('?token=')[1].split('&')[0];
-    } else if (hash.startsWith('#/invite/')) {
-      token = hash.replace('#/invite/', '').split('?')[0];
-    } else {
-      token = sessionStorage.getItem('pending_invite_token') || '';
-    }
+  if (detectedToken) {
+    sessionStorage.setItem('pending_invite_token', detectedToken);
+  }
+
+  // Handle Secure Invitation Links (#/invite?token=... or ?token=... or #/invite/...)
+  if (hash.startsWith('#/invite') || (detectedToken && !store.currentUser && hash !== '#/login' && hash !== '#/register')) {
+    const token = detectedToken || sessionStorage.getItem('pending_invite_token') || '';
 
     if (store.currentUser) {
       renderShell((container) => renderInvite(container, token));
@@ -588,7 +622,7 @@ function route() {
   if (store.currentUser && routeObj?.public) {
     const pendingToken = sessionStorage.getItem('pending_invite_token');
     if (pendingToken) {
-      window.location.hash = `#/invite?token=${pendingToken}`;
+      window.location.hash = `#/invite?token=${encodeURIComponent(pendingToken)}`;
       return;
     }
     window.location.hash = '#/dashboard';
@@ -606,7 +640,6 @@ function route() {
   }
 }
 
-
 window.addEventListener('hashchange', route);
 window.addEventListener('DOMContentLoaded', route);
 route();
@@ -621,7 +654,7 @@ waitForAuthReady().then((fbUser) => {
     store.setFirebaseUser(fbUser);
     const hash = window.location.hash || '#/dashboard';
     if (hash === '#/login' || hash === '#/register' || hash === '#/forgot-password') {
-      window.location.hash = '#/dashboard';
+      redirectAfterAuth();
     } else {
       route();
     }
@@ -643,7 +676,7 @@ subscribeFirebaseAuthState((fbUser) => {
     store.setFirebaseUser(fbUser);
     const hash = window.location.hash || '#/dashboard';
     if (hash === '#/login' || hash === '#/register' || hash === '#/forgot-password') {
-      window.location.hash = '#/dashboard';
+      redirectAfterAuth();
     } else {
       route();
     }

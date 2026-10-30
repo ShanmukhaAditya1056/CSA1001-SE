@@ -16,6 +16,15 @@ import {
   formatFirebaseError
 } from '../firebase.js';
 
+export function redirectAfterAuth() {
+  const pendingToken = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('pending_invite_token') : null;
+  if (pendingToken) {
+    window.location.hash = `#/invite?token=${encodeURIComponent(pendingToken)}`;
+  } else {
+    window.location.hash = '#/dashboard';
+  }
+}
+
 export function renderSignIn(container) {
   container.innerHTML = `
     <div class="min-h-screen w-full flex items-center justify-center p-4 relative z-10">
@@ -101,7 +110,7 @@ export function renderSignIn(container) {
       const user = await firebaseGoogleLogin();
       store.setFirebaseUser(user);
       showToast(`Welcome back, ${user.displayName || user.email}!`, 'success');
-      window.location.hash = '#/dashboard';
+      redirectAfterAuth();
     } catch (err) {
       console.warn('[Firebase Google Auth]:', err);
       googleBtn.disabled = false;
@@ -130,7 +139,7 @@ export function renderSignIn(container) {
       const user = await firebaseLogin(email, password);
       store.setFirebaseUser(user);
       showToast(`Welcome, ${user.displayName || email}!`, 'success');
-      window.location.hash = '#/dashboard';
+      redirectAfterAuth();
     } catch (firebaseErr) {
       const errorDesc = formatFirebaseError(firebaseErr);
       errorText.textContent = errorDesc;
@@ -223,7 +232,7 @@ export function renderRegister(container) {
       const user = await firebaseRegister(name, email, password);
       store.setFirebaseUser(user);
       showToast('Account created successfully!', 'success');
-      window.location.hash = '#/dashboard';
+      redirectAfterAuth();
     } catch (firebaseErr) {
       errorText.textContent = formatFirebaseError(firebaseErr);
       errorBox.classList.remove('hidden');
