@@ -3,6 +3,7 @@ import { runBusinessRulesTests } from './unit/businessRules.test.js';
 import { runClientInviteFlowTests } from './unit/clientInviteFlow.test.js';
 import { runTeamMembershipTests } from './unit/teamMembership.test.js';
 import { runStoreRulesTests } from './unit/storeRules.test.js';
+import { runRealtimeInvitationTests } from './unit/realtimeInvitations.test.js';
 import { runApiSecurityTests } from './integration/apiSecurity.test.js';
 import { runLifecycleFlowTests } from './integration/lifecycleFlow.test.js';
 
@@ -14,7 +15,7 @@ async function main() {
   console.log('===============================================================');
 
   let passedSuites = 0;
-  let totalSuites = 6;
+  let totalSuites = 7;
 
   try {
     // 0. Ensure API Server is running
@@ -46,6 +47,10 @@ async function main() {
     await runStoreRulesTests();
     passedSuites++;
 
+    // 3c. Verified-only, real-time invitation delivery
+    await runRealtimeInvitationTests();
+    passedSuites++;
+
     // 4. API Security & Project Isolation Tests
     await runApiSecurityTests();
     passedSuites++;
@@ -61,6 +66,7 @@ async function main() {
     console.log('   - Client Invitation & Token Tests: 10/10 passed');
     console.log('   - Team Membership, Roles & Isolation: 9/9 passed');
     console.log('   - Client Store Rule Enforcement: 7/7 passed');
+    console.log('   - Real-Time Verified Invitations: 6/6 passed');
     console.log('   - API Security & Isolation: 7/7 suites passed');
     console.log('   - Lifecycle Journey: 12/12 steps passed');
     console.log('===============================================================');

@@ -4,6 +4,7 @@ import { store } from '../store.js';
 import { formatDate, showToast, showConfirm, escapeHtml } from '../ui.js';
 import { extractInviteToken } from '../main.js';
 import { firebaseLogout } from '../firebase.js';
+import { respondToInvitation } from '../directory.js';
 
 function clearPendingInvite() {
   sessionStorage.removeItem('pending_invite_token');
@@ -220,12 +221,11 @@ export function renderInvite(container, token) {
   });
 
   // Accept button handler
-  document.getElementById('accept-invite-btn')?.addEventListener('click', () => {
+  document.getElementById('accept-invite-btn')?.addEventListener('click', async () => {
     const btn = document.getElementById('accept-invite-btn');
     if (btn) btn.disabled = true;
 
-    // Call store method
-    const res = store.acceptInvitation(cleanToken);
+    const res = await respondToInvitation(cleanToken, 'accept');
     if (res.error) {
       showToast(res.error, 'error');
       if (btn) btn.disabled = false;
@@ -239,8 +239,8 @@ export function renderInvite(container, token) {
 
   // Decline button handler
   document.getElementById('decline-invite-btn')?.addEventListener('click', () => {
-    showConfirm(`Are you sure you want to decline this invitation to join "${invitation.projectName}"?`, () => {
-      const res = store.declineInvitation(cleanToken);
+    showConfirm(`Are you sure you want to decline this invitation to join "${invitation.projectName}"?`, async () => {
+      const res = await respondToInvitation(cleanToken, 'decline');
       if (res.error) {
         showToast(res.error, 'error');
         return;

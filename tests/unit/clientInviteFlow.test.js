@@ -63,15 +63,28 @@ export async function runClientInviteFlowTests() {
   console.log('Testing: Reject adding unregistered user to team...');
   const addUnregResult = store.addMember(activeProjId, 'unregistered@company.com', 'Developer');
   assert.ok(addUnregResult.error, 'Adding unregistered user must fail');
-  assert.match(addUnregResult.error, /Only users who have already signed up/);
+  assert.match(addUnregResult.error, /^User not registered\. The user must first create an account in DevTrack/);
   console.log('✓ Direct addition of unregistered email blocked');
 
-  // Test 4: Creating invitation link for unregistered email
-  console.log('Testing: Creating secure invitation link...');
+  // Test 4: Inviting an unregistered email is rejected; once Bob signs up, the invite is created
+  console.log('Testing: Unregistered invite rejected, registered invite created...');
+  const unregInvite = store.createInvitation(activeProjId, 'bob@company.com', 'Developer');
+  assert.match(unregInvite.error || '', /^User not registered/, 'Invitation to an unregistered email must fail');
+  assert.strictEqual(store.getProjectInvitations(activeProjId).length, 0, 'No invitation record may be created');
+
+  const bob = store.register('Bob Developer', 'bob@company.com', 'SecurePass123!');
+  assert.strictEqual(bob.data.email, 'bob@company.com');
+  // Bob must NOT be automatically made an Owner of Alice's workspace
+  assert.strictEqual(store.getUserRole(activeProjId), null, 'A new account must not be auto-assigned Owner');
+  store.login('alice@company.com', 'Pass123!');
+
+  assert.match(store.createInvitation(activeProjId, 'alice@company.com', 'Developer').error, /cannot invite yourself/);
   const invResult = store.createInvitation(activeProjId, 'bob@company.com', 'Developer');
   assert.ok(!invResult.error, 'Invitation creation failed: ' + invResult.error);
   const createdInv = invResult.data;
   assert.ok(createdInv.token.startsWith('inv_'));
+  assert.strictEqual(createdInv.inviteeId, bob.data.id, 'Invitation is addressed to the registered account');
+  assert.strictEqual(store.createInvitation(activeProjId, 'bob@company.com', 'Tester').error, 'A pending invitation has already been sent to this user.');
   console.log('✓ Secure invitation dispatched with token:', createdInv.token.slice(0, 25) + '...');
 
   // Test 5: Simulating Device B (fresh browser where store has no local record of this invitation)
@@ -97,15 +110,12 @@ export async function runClientInviteFlowTests() {
   assert.ok(acceptUnauth.error, 'Unauthenticated accept must be blocked');
   console.log('✓ Unauthenticated accept rejected');
 
-  // Test 7: Bob registers his account
-  console.log('Testing: Bob registers his account...');
+  // Test 7: Bob signs in on Device B; viewing the invitation grants nothing yet
+  console.log('Testing: Bob signs in on Device B...');
   sessionStorage.setItem('pending_invite_token', createdInv.token);
-  const bob = store.register('Bob Developer', 'bob@company.com', 'SecurePass123!');
-  assert.strictEqual(bob.data.email, 'bob@company.com');
-  // Bob must NOT be automatically made an Owner because he is an invitee!
-  const bobInitialRole = store.getUserRole(activeProjId);
-  assert.strictEqual(bobInitialRole, null, 'Invitee must not be auto-assigned Owner on registration');
-  console.log('✓ Invitee registered without illegitimate Owner auto-assignment');
+  store.setFirebaseUser({ uid: bob.data.id, email: 'bob@company.com', displayName: 'Bob Developer' });
+  assert.strictEqual(store.getUserRole(activeProjId), null, 'Invitee must not be a member before accepting');
+  console.log('✓ Invitee signed in without illegitimate Owner auto-assignment');
 
   // Test 8: Wrong account tries to accept Bob\'s invite -> MUST FAIL
   console.log('Testing: Account mismatch rejection...');

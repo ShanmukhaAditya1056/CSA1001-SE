@@ -16,6 +16,7 @@ import { renderSettings } from './pages/settings.js';
 import { renderCicd } from './pages/cicd.js';
 import { renderGettingStarted } from './pages/gettingStarted.js';
 import { renderInvite } from './pages/invite.js';
+import { startInvitationSync, stopInvitationSync, respondToInvitation } from './directory.js';
 
 
 const app = document.getElementById('app');
@@ -213,12 +214,7 @@ function renderShell(contentRenderer) {
 
           <!-- Central In-App Invitations Inbox Button -->
           <button id="inbox-invitations-btn" class="relative flex items-center justify-center w-9 h-9 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-muted hover:text-text-primary border border-border-subtle transition-all cursor-pointer" title="Project Invitations Inbox">
-            <span class="material-symbols-outlined text-[20px] ${pendingInvsCount > 0 ? 'text-primary' : ''}">mail</span>
-            ${pendingInvsCount > 0 ? `
-              <span class="absolute -top-1 -right-1 flex h-4 min-w-[16px] px-1 items-center justify-center rounded-full bg-primary text-[10px] font-jetbrains font-bold text-on-primary animate-pulse shadow-sm shadow-primary/50">
-                ${pendingInvsCount}
-              </span>
-            ` : ''}
+            ${inboxBadgeHtml(pendingInvsCount)}
           </button>
 
 
@@ -252,7 +248,7 @@ function renderShell(contentRenderer) {
                   <span class="material-symbols-outlined text-[16px]">mail</span>
                   <span>Invitations Inbox</span>
                 </div>
-                ${pendingInvsCount > 0 ? `<span class="px-1.5 py-0.2 rounded-full bg-primary/20 text-primary text-[10px] font-jetbrains font-bold">${pendingInvsCount}</span>` : ''}
+                <span id="menu-inbox-count">${menuInboxCountHtml(pendingInvsCount)}</span>
               </button>
 
               <div class="border-t border-border-subtle my-1"></div>
@@ -319,6 +315,57 @@ function renderShell(contentRenderer) {
   // Render the specific page into main slot
   const mainContent = document.getElementById('main-content');
   contentRenderer(mainContent);
+}
+
+function inboxBadgeHtml(count) {
+  return `
+    <span class="material-symbols-outlined text-[20px] ${count > 0 ? 'text-primary' : ''}">mail</span>
+    ${count > 0 ? `
+      <span class="absolute -top-1 -right-1 flex h-4 min-w-[16px] px-1 items-center justify-center rounded-full bg-primary text-[10px] font-jetbrains font-bold text-on-primary animate-pulse shadow-sm shadow-primary/50">
+        ${count}
+      </span>
+    ` : ''}`;
+}
+
+function menuInboxCountHtml(count) {
+  return count > 0 ? `<span class="px-1.5 py-0.2 rounded-full bg-primary/20 text-primary text-[10px] font-jetbrains font-bold">${count}</span>` : '';
+}
+
+// Keep the inbox badge current without re-rendering the page underneath.
+function refreshInboxBadge() {
+  const user = store.currentUser;
+  const btn = document.getElementById('inbox-invitations-btn');
+  if (!user || !btn) return;
+  const count = store.getPendingInvitationsCount(user.email);
+  btn.innerHTML = inboxBadgeHtml(count);
+  const menuCount = document.getElementById('menu-inbox-count');
+  if (menuCount) menuCount.innerHTML = menuInboxCountHtml(count);
+}
+
+store.subscribe(refreshInboxBadge);
+
+function syncInvitationsForCurrentUser() {
+  const user = store.currentUser;
+  if (!user) {
+    stopInvitationSync();
+    return;
+  }
+  startInvitationSync(user, {
+    onNewInvitations: (invitations) => {
+      if (invitations.length > 2) {
+        showToast(`You have ${invitations.length} new project invitations. Open your inbox to respond.`, 'info');
+        return;
+      }
+      invitations.forEach(inv => {
+        showToast(`New project invitation: You have been invited to join ${inv.projectName} as ${inv.role}.`, 'info');
+      });
+    },
+    onInvitationResponse: (inv) => {
+      showToast(`${inv.inviteeName || inv.inviteeEmail} ${inv.status.toLowerCase()} your invitation to ${inv.projectName}.`, inv.status === 'Accepted' ? 'success' : 'info');
+      if (inv.status === 'Accepted' && window.location.hash.startsWith('#/team')) route();
+    },
+    onError: (err) => console.warn('[Invitations] Real-time sync error:', err)
+  });
 }
 
 function openQuickSearchModal() {
@@ -524,13 +571,16 @@ export function openInvitationsInboxModal(onChanged) {
   document.querySelectorAll('.inbox-accept-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const invId = btn.dataset.id;
-      const res = store.acceptInvitation(invId);
+      btn.disabled = true;
+      const res = await respondToInvitation(invId, 'accept');
+      btn.disabled = false;
       if (res.error) {
         showToast(res.error, 'error');
       } else {
         sessionStorage.removeItem('pending_invite_token');
         closeModal();
-        showToast(`Accepted invitation to join ${btn.dataset.name}!`, 'success');
+        showToast(`Welcome! You have joined ${btn.dataset.name} as ${btn.dataset.role}.`, 'success');
+        window.location.hash = '#/dashboard';
         if (onChanged) onChanged();
       }
     });
@@ -539,8 +589,8 @@ export function openInvitationsInboxModal(onChanged) {
   document.querySelectorAll('.inbox-decline-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const invId = btn.dataset.id;
-      showConfirm(`Decline invitation to join "${escapeHtml(btn.dataset.name)}"?`, () => {
-        const res = store.declineInvitation(invId);
+      showConfirm(`Decline invitation to join "${escapeHtml(btn.dataset.name)}"?`, async () => {
+        const res = await respondToInvitation(invId, 'decline');
         if (res.error) {
           showToast(res.error, 'error');
         } else {
@@ -599,6 +649,7 @@ export function redirectAfterAuth() {
 }
 
 function route() {
+  syncInvitationsForCurrentUser();
   const hash = window.location.hash || '#/dashboard';
   const detectedToken = extractInviteToken();
 

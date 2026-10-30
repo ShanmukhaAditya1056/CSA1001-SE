@@ -101,8 +101,12 @@ export async function runTeamMembershipTests() {
   console.log('✓ Membership survives Firebase UID migration');
 
   // 9. Cross-device invitation carries the project roster and adds only after acceptance
+  // Carol registered on another device: unknown locally, so she can only be
+  // invited with her shared-directory record (what checkUserRegistered returns).
   store.setFirebaseUser(alice);
-  const invitation = store.createInvitation(projectId, carol.email, 'Viewer');
+  assert.match(store.createInvitation(projectId, carol.email, 'Viewer').error, /^User not registered/);
+  const carolDirectoryEntry = { id: carol.uid, name: carol.displayName, email: carol.email };
+  const invitation = store.createInvitation(projectId, carol.email, 'Viewer', { invitee: carolDirectoryEntry });
   assert.ok(!invitation.error, invitation.error);
   const token = invitation.data.token;
 

@@ -1,6 +1,7 @@
 // DevTrack Team & Roles Management
 import { store } from '../store.js';
 import { avatar, formatDate, showToast, showModal, closeModal, showConfirm } from '../ui.js';
+import { sendProjectInvitation, revokeProjectInvitation } from '../directory.js';
 
 export function renderTeam(container) {
   const project = store.getActiveProject();
@@ -276,8 +277,8 @@ export function renderTeam(container) {
     btn.addEventListener('click', () => {
       const invId = btn.dataset.id;
       const email = btn.dataset.email;
-      showConfirm(`Revoke invitation for "${email}"? The recipient will no longer be able to use this link.`, () => {
-        const res = store.revokeInvitation(invId);
+      showConfirm(`Revoke invitation for "${email}"? The recipient will no longer be able to use this link.`, async () => {
+        const res = await revokeProjectInvitation(invId);
         if (res.error) {
           showToast(res.error, 'error');
         } else {
@@ -309,8 +310,8 @@ function openAddMemberModal(projectId, onSaved) {
       <div class="p-3 rounded-lg bg-surface-base border border-secondary/30 flex items-start gap-2.5">
         <span class="material-symbols-outlined text-secondary text-[20px] shrink-0 mt-0.5">group_add</span>
         <div class="text-[12px]">
-          <span id="add-member-mode-title" class="font-semibold text-text-primary block">Add a Registered Teammate</span>
-          <span id="add-member-mode-text" class="text-text-muted">Accounts registered on this device are added to the project immediately. Other emails receive a secure invitation link to join.</span>
+          <span class="font-semibold text-text-primary block">Invite a Registered DevTrack User</span>
+          <span class="text-text-muted">The invitation is delivered straight to their in-app inbox. They join once they accept. The person must already have a DevTrack account.</span>
         </div>
       </div>
 
@@ -318,7 +319,7 @@ function openAddMemberModal(projectId, onSaved) {
         <div>
           <label class="block text-label-md font-medium text-text-secondary mb-1">Select Registered User</label>
           <select id="mem-user-select" class="w-full bg-surface-base text-text-primary text-body-md px-3 py-2 rounded-lg border border-border-subtle focus:border-primary outline-none">
-            <option value="">-- Choose from known accounts or enter email below --</option>
+            <option value="">-- Choose an account seen on this device or enter an email below --</option>
             ${nonMembers.map(u => `
               <option value="${u.email}">${u.name} (${u.email})</option>
             `).join('')}
@@ -326,7 +327,7 @@ function openAddMemberModal(projectId, onSaved) {
         </div>
 
         <div>
-          <span class="text-[11px] font-jetbrains text-text-muted uppercase tracking-wider block mb-1.5">Known Workspace Accounts (${nonMembers.length} available)</span>
+          <span class="text-[11px] font-jetbrains text-text-muted uppercase tracking-wider block mb-1.5">Accounts Seen On This Device (${nonMembers.length})</span>
           <div class="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-1 bg-surface-base/50 rounded-lg border border-border-subtle">
             ${nonMembers.map(u => `
               <button type="button" class="quick-fill-email group flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-surface-canvas hover:bg-surface-elevated border border-border-subtle hover:border-secondary transition-all text-left" data-email="${u.email}">
@@ -350,7 +351,7 @@ function openAddMemberModal(projectId, onSaved) {
         <datalist id="verified-users-datalist">
           ${nonMembers.map(u => `<option value="${u.email}">${u.name} (Verified)</option>`).join('')}
         </datalist>
-        <p id="add-member-mode-hint" class="text-[11px] text-text-muted mt-1 font-jetbrains">Known account: added immediately. New email: invitation link required.</p>
+        <p class="text-[11px] text-text-muted mt-1 font-jetbrains">Invitations stay valid for 7 days.</p>
       </div>
 
       <div>
@@ -370,139 +371,52 @@ function openAddMemberModal(projectId, onSaved) {
 
       <div class="flex justify-end gap-3 pt-3">
         <button type="button" onclick="window.__closeModal()" class="px-4 py-2 rounded-lg bg-surface-panel text-text-secondary hover:bg-surface-elevated text-body-md">Cancel</button>
-        <button type="submit" id="add-member-submit" class="px-5 py-2 rounded-lg bg-primary text-on-primary font-semibold text-body-md hover:bg-primary-fixed shadow-md shadow-primary/20">Add to Team</button>
+        <button type="submit" id="add-member-submit" class="px-5 py-2 rounded-lg bg-primary text-on-primary font-semibold text-body-md hover:bg-primary-fixed shadow-md shadow-primary/20 disabled:opacity-60">Send Invitation</button>
       </div>
     </form>
-  `, { title: 'Add Member or Invite to Project Team' });
+  `, { title: 'Invite Member to Project Team' });
 
   const emailInput = document.getElementById('mem-email');
   const userSelect = document.getElementById('mem-user-select');
   const submitBtn = document.getElementById('add-member-submit');
-  const modeTitle = document.getElementById('add-member-mode-title');
-  const modeText = document.getElementById('add-member-mode-text');
-  const modeHint = document.getElementById('add-member-mode-hint');
   const errorBox = document.getElementById('add-mem-error');
   const errorText = document.getElementById('add-mem-error-text');
 
-  const findKnownUser = (email) => {
-    const clean = normalize(email);
-    if (!clean) return null;
-    return store.getAllUsers().find(u => normalize(u.email) === clean) || null;
-  };
-
-  const syncMode = () => {
-    const known = findKnownUser(emailInput?.value);
-    if (known) {
-      submitBtn.textContent = 'Add to Team';
-      modeTitle.textContent = 'Add Registered Teammate';
-      modeText.textContent = `${known.name} already has an account on this device and will be added to the project immediately.`;
-      modeHint.textContent = 'This account will be granted access immediately with the selected role.';
-    } else {
-      submitBtn.textContent = 'Send Invitation';
-      modeTitle.textContent = 'Invite a New Teammate';
-      modeText.textContent = 'This email does not match an account on this device. A secure invitation link will be generated for them to sign up and join.';
-      modeHint.textContent = 'Invitation links remain valid for 7 days.';
-    }
-  };
-
   userSelect?.addEventListener('change', (e) => {
-    if (e.target.value) {
-      emailInput.value = e.target.value;
-      syncMode();
-    }
+    if (e.target.value) emailInput.value = e.target.value;
   });
-
-  emailInput?.addEventListener('input', syncMode);
 
   // Quick fill email buttons
   document.querySelectorAll('.quick-fill-email').forEach(btn => {
     btn.addEventListener('click', () => {
       emailInput.value = btn.dataset.email;
       if (userSelect) userSelect.value = btn.dataset.email;
-      syncMode();
     });
   });
 
-  syncMode();
-
   const form = document.getElementById('add-member-form');
-  form?.addEventListener('submit', (e) => {
+  form?.addEventListener('submit', async (e) => {
     e.preventDefault();
     errorBox.classList.add('hidden');
-    const email = document.getElementById('mem-email').value.trim();
+    const email = emailInput.value.trim();
     const role = document.getElementById('mem-role').value;
-    const knownUser = findKnownUser(email);
 
-    // Registered accounts get immediate project access. Unknown emails must
-    // accept a secure invitation before membership is created.
-    if (knownUser) {
-      const addRes = store.addMember(projectId, email, role);
-      if (addRes.error) {
-        errorText.textContent = addRes.error;
-        errorBox.classList.remove('hidden');
-        return;
-      }
-      closeModal();
-      showToast(`${knownUser.name} added to the project as ${role}.`, 'success');
-      if (onSaved) onSaved();
-      return;
-    }
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Checking account...';
+    const res = await sendProjectInvitation(projectId, email, role);
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Send Invitation';
 
-    const res = store.createInvitation(projectId, email, role);
+    // Unregistered, duplicate or invalid: keep the modal open so the owner can fix the email.
     if (res.error) {
       errorText.textContent = res.error;
       errorBox.classList.remove('hidden');
-    } else {
-      closeModal();
-      const inv = res.data;
-      const inviteUrl = `${window.location.origin}${window.location.pathname}#/invite?token=${inv.token}`;
-
-      // Show immediate invitation confirmation modal with link sharing
-      showModal(`
-        <div class="space-y-4">
-          <div class="p-3.5 rounded-xl bg-surface-base border border-secondary/30 flex items-start gap-3">
-            <div class="w-10 h-10 rounded-xl bg-secondary/15 text-secondary flex items-center justify-center shrink-0">
-              <span class="material-symbols-outlined text-[24px]">mark_email_read</span>
-            </div>
-            <div>
-              <h4 class="font-geist text-body-md font-bold text-text-primary">Invitation Successfully Created!</h4>
-              <p class="text-[12px] text-text-muted mt-0.5">
-                An invitation for <strong class="text-text-primary">${email}</strong> as <strong class="text-secondary">${role}</strong> is now pending.
-              </p>
-            </div>
-          </div>
-
-          <div>
-            <label class="block text-label-md font-medium text-text-secondary mb-1">Direct Secure Invitation Link</label>
-            <div class="flex items-center gap-2">
-              <input type="text" id="created-invite-link" readonly value="${inviteUrl}"
-                class="w-full bg-surface-base text-text-primary font-jetbrains text-[12px] px-3 py-2 rounded-lg border border-border-subtle focus:border-primary outline-none" />
-              <button id="copy-created-link-btn" class="px-4 py-2 rounded-lg bg-primary hover:bg-primary-fixed text-on-primary font-semibold text-body-sm shadow-md shadow-primary/20 shrink-0 cursor-pointer">
-                Copy Link
-              </button>
-            </div>
-            <p class="text-[11px] text-text-muted mt-1 font-jetbrains">
-              Recipient can also accept directly from their in-app Invitation Inbox when logged in.
-            </p>
-          </div>
-
-          <div class="flex justify-end pt-2">
-            <button type="button" onclick="window.__closeModal()" class="px-5 py-2 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-primary text-body-sm font-medium">Done</button>
-          </div>
-        </div>
-      `, { title: 'Project Invitation Dispatched' });
-
-      document.getElementById('copy-created-link-btn')?.addEventListener('click', async () => {
-        try {
-          await navigator.clipboard.writeText(inviteUrl);
-          showToast('Invitation link copied to clipboard!', 'success');
-        } catch {
-          prompt('Copy link:', inviteUrl);
-        }
-      });
-
-      if (onSaved) onSaved();
+      return;
     }
+
+    closeModal();
+    showToast(`Invitation sent to ${res.data.inviteeName} (${res.data.inviteeEmail}) as ${role}. It is now in their inbox.`, 'success');
+    if (onSaved) onSaved();
   });
 }
 

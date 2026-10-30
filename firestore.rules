@@ -1,0 +1,68 @@
+rules_version = '2';
+
+// DevTrack shared user directory and real-time invitation inbox.
+// Deploy with: firebase deploy --only firestore:rules
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null && request.auth.token.email != null;
+    }
+
+    function myEmail() {
+      return request.auth.token.email.lower();
+    }
+
+    function directoryEntry(email) {
+      return /databases/$(database)/documents/userDirectory/$(email);
+    }
+
+    // One record per registered account, keyed by lowercase email. Lookups are
+    // by exact email only; listing the directory is not allowed.
+    match /userDirectory/{email} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create, update: if signedIn()
+        && email == myEmail()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == myEmail();
+      allow delete: if false;
+    }
+
+    match /invitations/{invitationId} {
+      // `resource == null` lets a client check whether a record exists.
+      allow get: if signedIn() && (resource == null
+        || resource.data.inviterId == request.auth.uid
+        || resource.data.inviteeEmail == myEmail());
+      allow list: if signedIn()
+        && (resource.data.inviterId == request.auth.uid || resource.data.inviteeEmail == myEmail());
+
+      // Only registered accounts can be invited: the invitee must already have
+      // a directory entry whose uid matches the invitation.
+      allow create: if signedIn()
+        && request.resource.data.id == invitationId
+        && request.resource.data.inviterId == request.auth.uid
+        && request.resource.data.inviterEmail == myEmail()
+        && request.resource.data.inviteeEmail != myEmail()
+        && request.resource.data.status == 'Pending'
+        && request.resource.data.role in ['Owner', 'Developer', 'Tester', 'Viewer']
+        && request.resource.data.expiresAtMs <= request.time.toMillis() + 7 * 24 * 60 * 60 * 1000 + 60000
+        && exists(directoryEntry(request.resource.data.inviteeEmail))
+        && get(directoryEntry(request.resource.data.inviteeEmail)).data.uid == request.resource.data.inviteeId;
+
+      // Invitee may accept or decline a live pending invitation; inviter may revoke it.
+      allow update: if signedIn()
+        && resource.data.status == 'Pending'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'respondedAt'])
+        && (
+          (resource.data.inviteeEmail == myEmail()
+            && request.resource.data.status in ['Accepted', 'Declined']
+            && request.time.toMillis() < resource.data.expiresAtMs)
+          || (resource.data.inviterId == request.auth.uid
+            && request.resource.data.status == 'Revoked')
+        );
+
+      allow delete: if false;
+    }
+  }
+}

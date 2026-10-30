@@ -4,7 +4,8 @@ import {
   ROLES, permissionError, isValidPriority, REQUIREMENT_STATUSES, REQUIREMENT_HISTORY_FIELDS,
   SPRINT_STATUSES, validateSprintDates, TASK_STATUSES, canTransitionTask, TEST_TYPES, TEST_RESULTS,
   isValidSeverity, canTransitionBug, can, BUG_VERIFY_STATES, BUG_RESOLVED_STATES, RELEASE_STATUSES,
-  isValidReleaseName, LEGACY_STATUS_MAP, buildTraceability
+  isValidReleaseName, LEGACY_STATUS_MAP, buildTraceability, UNREGISTERED_USER_MESSAGE,
+  ALREADY_MEMBER_MESSAGE, PENDING_INVITATION_MESSAGE, SELF_INVITE_MESSAGE, INVITATION_TTL_MS
 } from './rules.js';
 
 const STORE_KEY = 'devtrack_store';
@@ -591,15 +592,13 @@ class Store {
     );
 
     if (isAlreadyMember) {
-      return { error: `User with email "${cleanEmail}" is already a member of this project.` };
+      return { error: ALREADY_MEMBER_MESSAGE };
     }
 
     // STRICT POLICY: Only users who have already signed up can be added to the project team
     const user = data.users.find(u => normalizeEmail(u.email) === cleanEmail);
     if (!user) {
-      return {
-        error: `No registered account found for "${cleanEmail}". Only users who have already signed up can be added to the team. Please send them an invitation link so they can create an account and join.`
-      };
+      return { error: UNREGISTERED_USER_MESSAGE };
     }
 
     const member = {
@@ -719,49 +718,59 @@ class Store {
   }
 
   // ===== INVITATIONS =====
-  createInvitation(projectId, email, role) {
+  // Checks that need no registry lookup: auth, ownership, email format,
+  // self-invite, existing membership and an already-pending invitation.
+  validateInvitation(projectId, email) {
     const data = this._load();
     if (!data.currentUser) return { error: 'Authentication required.' };
 
     const project = data.projects.find(p => p.id === projectId);
     if (!project) return { error: 'Project not found.' };
 
-    const myRole = this.getUserRole(projectId);
-    if (myRole !== 'Owner') {
+    if (this.getUserRole(projectId) !== 'Owner') {
       return { error: 'Forbidden: Only project owners can invite new members.' };
     }
 
     const cleanEmail = normalizeEmail(email);
-    if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
       return { error: 'Please enter a valid email address.' };
     }
+    if (cleanEmail === normalizeEmail(data.currentUser.email)) {
+      return { error: SELF_INVITE_MESSAGE };
+    }
 
-    const invitedRole = VALID_ROLES.includes(role) ? role : 'Developer';
-
-    // Check if user is already an active member of this project
     const isAlreadyMember = data.members.some(m =>
       m.projectId === projectId &&
       ((m.userEmail && normalizeEmail(m.userEmail) === cleanEmail) ||
        (m.userId && data.users.some(u => u.id === m.userId && u.email && normalizeEmail(u.email) === cleanEmail)))
     );
+    if (isAlreadyMember) return { error: ALREADY_MEMBER_MESSAGE };
 
-    if (isAlreadyMember) {
-      return { error: `User with email "${cleanEmail}" is already an active member of this project.` };
-    }
-
-    // Check if there is already an active pending invitation
-    if (!data.invitations) data.invitations = [];
     const nowMs = Date.now();
-    const existingPending = data.invitations.find(inv =>
+    const existingPending = (data.invitations || []).find(inv =>
       inv.projectId === projectId &&
       normalizeEmail(inv.inviteeEmail) === cleanEmail &&
       inv.status === 'Pending' &&
       new Date(inv.expiresAt).getTime() > nowMs
     );
+    if (existingPending) return { error: PENDING_INVITATION_MESSAGE };
 
-    if (existingPending) {
-      return { error: `A pending invitation has already been sent to "${cleanEmail}".` };
-    }
+    return { data: { project, cleanEmail } };
+  }
+
+  // `invitee` is the shared-registry record for the email (see directory.js).
+  // Without it, only accounts known to this browser count as registered.
+  createInvitation(projectId, email, role, { invitee = null } = {}) {
+    const check = this.validateInvitation(projectId, email);
+    if (check.error) return check;
+    const { project, cleanEmail } = check.data;
+    const data = this._load();
+
+    const localUser = data.users.find(u => normalizeEmail(u.email) === cleanEmail);
+    const registered = invitee && normalizeEmail(invitee.email) === cleanEmail ? invitee : localUser;
+    if (!registered) return { error: UNREGISTERED_USER_MESSAGE };
+
+    const invitedRole = VALID_ROLES.includes(role) ? role : 'Developer';
 
     // Carry a roster snapshot in the token so a recipient on another device can
     // resolve the project team even though project data is stored per-browser.
@@ -770,7 +779,8 @@ class Store {
       .map(m => ({ id: m.userId || null, name: m.userName, email: normalizeEmail(m.userEmail), role: m.role }));
 
     const invId = 'inv-' + generateId().slice(0, 8);
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const createdAt = now();
+    const expiresAt = new Date(Date.now() + INVITATION_TTL_MS).toISOString();
     const token = encodeInviteToken({
       id: invId,
       projectId,
@@ -784,7 +794,7 @@ class Store {
       role: invitedRole,
       team,
       expiresAt,
-      createdAt: now()
+      createdAt
     });
 
     const invitation = {
@@ -794,15 +804,18 @@ class Store {
       projectKey: project.key,
       inviterId: data.currentUser.id,
       inviterName: data.currentUser.name,
-      inviterEmail: data.currentUser.email,
+      inviterEmail: normalizeEmail(data.currentUser.email),
+      inviteeId: registered.id || null,
+      inviteeName: registered.name || cleanEmail.split('@')[0],
       inviteeEmail: cleanEmail,
       role: invitedRole,
       status: 'Pending',
       token,
       expiresAt,
-      createdAt: now()
+      createdAt
     };
 
+    if (!data.invitations) data.invitations = [];
     data.invitations.unshift(invitation);
 
     this.addAuditLog({
@@ -816,6 +829,72 @@ class Store {
 
     this._save();
     return { data: invitation };
+  }
+
+  // Rolls back a locally created invitation that could not be delivered.
+  discardInvitation(invitationId) {
+    const data = this._load();
+    data.invitations = (data.invitations || []).filter(i => i.id !== invitationId);
+    this._save();
+  }
+
+  // Merge an invitation delivered through the shared inbox. Returns true when
+  // the local copy changed.
+  syncRemoteInvitation(remote) {
+    if (!remote?.id) return false;
+    const data = this._load();
+    let local = (data.invitations || []).find(i => i.id === remote.id);
+    const existed = Boolean(local);
+    if (!local && remote.token) local = this.getInvitationByToken(remote.token);
+    if (!local) return false;
+    const statusChanged = remote.status && remote.status !== 'Pending' && local.status !== remote.status;
+    // The invitee responded (possibly on another of their devices, or this
+    // device's own write echoing back): apply it fully so membership exists here too.
+    const isInvitee = normalizeEmail(data.currentUser?.email) === normalizeEmail(local.inviteeEmail);
+    if (statusChanged && isInvitee && local.status === 'Pending' && ['Accepted', 'Declined'].includes(remote.status)) {
+      const res = remote.status === 'Accepted' ? this.acceptInvitation(local.id) : this.declineInvitation(local.id);
+      if (!res.error) return true;
+    }
+    if (statusChanged) local.status = remote.status;
+    if (!existed || statusChanged) this._save();
+    return Boolean(!existed || statusChanged);
+  }
+
+  // Inviter side: reflect the invitee's Accept/Decline (or a revoke) from the
+  // shared inbox, creating the membership locally when accepted.
+  applyInvitationResponse(remote) {
+    const data = this._load();
+    const local = (data.invitations || []).find(i => i.id === remote?.id);
+    if (!local || local.status === remote.status || remote.status === 'Pending') return null;
+    local.status = remote.status;
+    if (remote.status === 'Accepted') {
+      local.acceptedAt = remote.respondedAt || now();
+      const email = normalizeEmail(remote.inviteeEmail);
+      const exists = data.members.some(m => m.projectId === remote.projectId &&
+        (normalizeEmail(m.userEmail) === email || (remote.inviteeId && m.userId === remote.inviteeId)));
+      if (!exists) {
+        data.members.push({
+          id: 'mem-' + generateId().slice(0, 8),
+          projectId: remote.projectId,
+          userId: remote.inviteeId || null,
+          userName: remote.inviteeName || email.split('@')[0],
+          userEmail: email,
+          role: VALID_ROLES.includes(remote.role) ? remote.role : 'Developer',
+          addedVia: 'invitation',
+          addedAt: local.acceptedAt
+        });
+      }
+      this.addAuditLog({
+        type: 'INVITATION_ACCEPTED',
+        title: `Team Member Joined: ${remote.inviteeName || email}`,
+        details: `Accepted invitation to project [${remote.projectKey}] as ${remote.role}`,
+        author: remote.inviteeName || email,
+        icon: 'how_to_reg',
+        color: 'text-status-passed'
+      });
+    }
+    this._save();
+    return local;
   }
 
   getProjectInvitations(projectId) {
@@ -948,25 +1027,21 @@ class Store {
     return inv || null;
   }
 
-  acceptInvitation(idOrToken) {
+  // Validates that the signed-in user may respond to an invitation, without
+  // changing anything. Used before the shared inbox is updated.
+  checkInvitationResponse(idOrToken, action = 'accept') {
     const data = this._load();
     if (!data.currentUser) {
-      return { error: 'Authentication required. Please sign in or create an account to accept this invitation.' };
+      return { error: 'Authentication required. Please sign in or create an account to respond to this invitation.' };
     }
 
     // STRICT POLICY: Only users who have signed up can join
-    if (!isRegisteredUser(data, data.currentUser)) {
+    if (action === 'accept' && !isRegisteredUser(data, data.currentUser)) {
       return { error: 'Only signed-up users can join a project. Please create an account or sign in first.' };
     }
 
     const inv = this.getInvitationByToken(idOrToken) || (data.invitations || []).find(i => i.id === idOrToken || i.token === idOrToken);
     if (!inv) return { error: 'Invitation not found or invalid token.' };
-
-    if (new Date(inv.expiresAt).getTime() <= Date.now()) {
-      inv.status = 'Expired';
-      this._save();
-      return { error: 'This invitation has expired. Please ask the project owner for a new invitation.' };
-    }
 
     if (normalizeEmail(data.currentUser.email) !== normalizeEmail(inv.inviteeEmail)) {
       return {
@@ -974,9 +1049,25 @@ class Store {
       };
     }
 
+    if (inv.status === 'Pending' && new Date(inv.expiresAt).getTime() <= Date.now()) {
+      inv.status = 'Expired';
+      this._save();
+    }
+    if (inv.status === 'Expired') {
+      return { error: 'This invitation has expired. Please ask the project owner for a new invitation.' };
+    }
+
     if (inv.status !== 'Pending') {
       return { error: `This invitation has already been ${inv.status.toLowerCase()}.` };
     }
+    return { data: inv };
+  }
+
+  acceptInvitation(idOrToken) {
+    const check = this.checkInvitationResponse(idOrToken, 'accept');
+    if (check.error) return check;
+    const inv = check.data;
+    const data = this._load();
 
     // Check if already a member
     const isAlreadyMember = data.members.some(m =>
@@ -1018,19 +1109,10 @@ class Store {
   }
 
   declineInvitation(idOrToken) {
+    const check = this.checkInvitationResponse(idOrToken, 'decline');
+    if (check.error) return check;
+    const inv = check.data;
     const data = this._load();
-    if (!data.currentUser) return { error: 'Authentication required.' };
-
-    const inv = this.getInvitationByToken(idOrToken) || (data.invitations || []).find(i => i.id === idOrToken || i.token === idOrToken);
-    if (!inv) return { error: 'Invitation not found.' };
-
-    if (normalizeEmail(data.currentUser.email) !== normalizeEmail(inv.inviteeEmail)) {
-      return { error: 'You are not authorized to decline this invitation.' };
-    }
-
-    if (inv.status !== 'Pending') {
-      return { error: `Invitation has already been ${inv.status.toLowerCase()}.` };
-    }
 
     // EXPLICIT DECLINE: DO NOT CREATE MEMBERSHIP!
     inv.status = 'Declined';
@@ -1059,6 +1141,9 @@ class Store {
     const myRole = this.getUserRole(inv.projectId);
     if (myRole !== 'Owner') {
       return { error: 'Forbidden: Only project owners can revoke invitations.' };
+    }
+    if (inv.status !== 'Pending') {
+      return { error: `Invitation has already been ${inv.status.toLowerCase()}.` };
     }
 
     inv.status = 'Revoked';

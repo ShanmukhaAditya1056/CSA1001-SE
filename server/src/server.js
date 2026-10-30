@@ -7,7 +7,8 @@ import {
   ROLES, can, isValidPriority, REQUIREMENT_STATUSES, REQUIREMENT_HISTORY_FIELDS, SPRINT_STATUSES,
   validateSprintDates, TASK_STATUSES, canTransitionTask, TEST_TYPES, TEST_RESULTS, isValidSeverity,
   canTransitionBug, BUG_VERIFY_STATES, BUG_RESOLVED_STATES, RELEASE_STATUSES, isValidReleaseName,
-  buildTraceability, computeCoverage
+  buildTraceability, computeCoverage, UNREGISTERED_USER_MESSAGE, ALREADY_MEMBER_MESSAGE,
+  PENDING_INVITATION_MESSAGE, SELF_INVITE_MESSAGE, INVITATION_TTL_MS
 } from '../../src/rules.js';
 
 const PORT = process.env.PORT || 4000;
@@ -509,6 +510,19 @@ export const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // 4.4 Registered User Directory Lookup (checkUserRegistered)
+    if (pathname === '/api/v1/users/lookup' && method === 'GET') {
+      const user = getAuthUser(req);
+      if (!user) {
+        sendJson(res, 401, null, { code: 'UNAUTHORIZED', message: 'Authentication required.' });
+        return;
+      }
+      const email = String(parsedUrl.searchParams.get('email') || '').trim().toLowerCase();
+      const found = DB.users.find(u => u.email.toLowerCase() === email);
+      sendJson(res, 200, found ? { exists: true, user: publicUser(found) } : { exists: false });
+      return;
+    }
+
     // 4.5 Central In-App Invitations Endpoints (Inbox & Link Verification)
     if (pathname === '/api/v1/invitations/my' && method === 'GET') {
       const user = getAuthUser(req);
@@ -669,19 +683,13 @@ export const server = http.createServer(async (req, res) => {
         // STRICT POLICY: Only verified users who already have an account can be added
         const registeredUser = DB.users.find(u => u.email.toLowerCase() === cleanEmail);
         if (!registeredUser) {
-          sendJson(res, 404, null, {
-            code: 'USER_NOT_FOUND',
-            message: 'Only users who have already signed up can be added to the team.'
-          });
+          sendJson(res, 404, null, { code: 'USER_NOT_FOUND', message: UNREGISTERED_USER_MESSAGE });
           return;
         }
 
         // Prevent duplicate membership
         if (DB.members.some(m => m.projectId === projectId && m.userId === registeredUser.id)) {
-          sendJson(res, 409, null, {
-            code: 'CONFLICT',
-            message: `"${registeredUser.name}" is already a member of this project.`
-          });
+          sendJson(res, 409, null, { code: 'CONFLICT', message: ALREADY_MEMBER_MESSAGE });
           return;
         }
 
@@ -711,8 +719,12 @@ export const server = http.createServer(async (req, res) => {
 
         const body = await readBody(req);
         const cleanEmail = String(body.email || '').trim().toLowerCase();
-        if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
           sendJson(res, 400, null, { code: 'VALIDATION_ERROR', message: 'Valid email address is required.' });
+          return;
+        }
+        if (cleanEmail === user.email.toLowerCase()) {
+          sendJson(res, 400, null, { code: 'SELF_INVITE', message: SELF_INVITE_MESSAGE });
           return;
         }
 
@@ -723,7 +735,7 @@ export const server = http.createServer(async (req, res) => {
         });
 
         if (isMember) {
-          sendJson(res, 409, null, { code: 'ALREADY_MEMBER', message: `User with email "${cleanEmail}" is already a member of this project.` });
+          sendJson(res, 409, null, { code: 'ALREADY_MEMBER', message: ALREADY_MEMBER_MESSAGE });
           return;
         }
 
@@ -735,13 +747,20 @@ export const server = http.createServer(async (req, res) => {
         );
 
         if (existingPending) {
-          sendJson(res, 409, null, { code: 'INVITATION_ALREADY_PENDING', message: `A pending invitation has already been sent to "${cleanEmail}".` });
+          sendJson(res, 409, null, { code: 'INVITATION_ALREADY_PENDING', message: PENDING_INVITATION_MESSAGE });
+          return;
+        }
+
+        // STRICT POLICY: invitations go only to accounts that already exist
+        const invitee = DB.users.find(u => u.email.toLowerCase() === cleanEmail);
+        if (!invitee) {
+          sendJson(res, 404, null, { code: 'USER_NOT_FOUND', message: UNREGISTERED_USER_MESSAGE });
           return;
         }
 
         const role = ROLES.includes(body.role) ? body.role : 'Developer';
         const invId = generateId('inv');
-        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+        const expiresAt = new Date(Date.now() + INVITATION_TTL_MS).toISOString();
         const createdAt = new Date().toISOString();
         const token = signInviteToken({
           id: invId,
@@ -765,6 +784,8 @@ export const server = http.createServer(async (req, res) => {
           inviterId: user.id,
           inviterName: user.name,
           inviterEmail: user.email,
+          inviteeId: invitee.id,
+          inviteeName: invitee.name,
           inviteeEmail: cleanEmail,
           role,
           status: 'Pending',

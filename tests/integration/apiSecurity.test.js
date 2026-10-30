@@ -165,7 +165,7 @@ export async function runApiSecurityTests() {
   });
   assert.strictEqual(unverifiedAddRes.status, 404, 'Adding unverified account must return 404');
   assert.strictEqual(unverifiedAddRes.body.error.code, 'USER_NOT_FOUND');
-  assert.strictEqual(unverifiedAddRes.body.error.message, 'Only users who have already signed up can be added to the team.');
+  assert.strictEqual(unverifiedAddRes.body.error.message, 'User not registered. The user must first create an account in DevTrack before they can be added or invited to a team.');
   console.log('✓ Adding unverified non-registered email rejected with 404');
 
   // Add existing verified user (outsider registered earlier)
@@ -207,6 +207,38 @@ export async function runApiSecurityTests() {
   assert.strictEqual(nonOwnerInviteRes.status, 403, 'Non-owner inviting must return 403');
   assert.strictEqual(nonOwnerInviteRes.body.error.code, 'FORBIDDEN');
 
+  // A2. Inviting an email with no DevTrack account is rejected outright
+  const unregInviteRes = await request('/api/v1/projects/proj-001/invitations', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${ownerToken}` },
+    body: { email: 'invitee@secure.io', role: 'Tester' }
+  });
+  assert.strictEqual(unregInviteRes.status, 404, 'Inviting an unregistered email must return 404');
+  assert.strictEqual(unregInviteRes.body.error.message, 'User not registered. The user must first create an account in DevTrack before they can be added or invited to a team.');
+  const pendingBeforeSignup = await request('/api/v1/projects/proj-001/invitations', { headers: { 'Authorization': `Bearer ${ownerToken}` } });
+  assert.strictEqual(pendingBeforeSignup.body.data.length, 0, 'No invitation may be created for an unregistered email');
+
+  // A3. Owner cannot invite themselves
+  const selfInviteRes = await request('/api/v1/projects/proj-001/invitations', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${ownerToken}` },
+    body: { email: 'lead@devtrack.io', role: 'Tester' }
+  });
+  assert.strictEqual(selfInviteRes.status, 400, 'Self-invitation must return 400');
+
+  // Invitee creates their DevTrack account first
+  const inviteeRegRes = await request('/api/v1/auth/register', {
+    method: 'POST',
+    body: { name: 'Invitee User', email: 'invitee@secure.io', password: 'password123' }
+  });
+  assert.strictEqual(inviteeRegRes.status, 201);
+  const inviteeToken = inviteeRegRes.body.data.token;
+
+  const lookupRes = await request('/api/v1/users/lookup?email=INVITEE@secure.io', { headers: { 'Authorization': `Bearer ${ownerToken}` } });
+  assert.strictEqual(lookupRes.body.data.exists, true, 'checkUserRegistered finds the new account');
+  const missingLookup = await request('/api/v1/users/lookup?email=ghost@secure.io', { headers: { 'Authorization': `Bearer ${ownerToken}` } });
+  assert.strictEqual(missingLookup.body.data.exists, false);
+
   // B. Owner creates invitation for invitee@secure.io
   const inviteRes = await request('/api/v1/projects/proj-001/invitations', {
     method: 'POST',
@@ -218,6 +250,7 @@ export async function runApiSecurityTests() {
   assert.strictEqual(invitation.status, 'Pending');
   assert.strictEqual(invitation.role, 'Tester');
   assert.ok(invitation.token, 'Must return secure token');
+  assert.strictEqual(invitation.inviteeId, inviteeRegRes.body.data.id, 'Invitation is addressed to the registered account');
 
   // C. Duplicate pending invitation rejected
   const dupInviteRes = await request('/api/v1/projects/proj-001/invitations', {
@@ -232,14 +265,6 @@ export async function runApiSecurityTests() {
   assert.strictEqual(tokenPreviewRes.status, 200);
   assert.strictEqual(tokenPreviewRes.body.data.projectKey, 'DEV');
   assert.strictEqual(tokenPreviewRes.body.data.role, 'Tester');
-
-  // Register invitee user account
-  const inviteeRegRes = await request('/api/v1/auth/register', {
-    method: 'POST',
-    body: { name: 'Invitee User', email: 'invitee@secure.io', password: 'password123' }
-  });
-  assert.strictEqual(inviteeRegRes.status, 201);
-  const inviteeToken = inviteeRegRes.body.data.token;
 
   // E. Central In-App Inbox retrieval
   const myInvsRes = await request('/api/v1/invitations/my', {
