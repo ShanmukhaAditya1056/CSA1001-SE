@@ -30,16 +30,10 @@ export const DEFAULT_CONFIG = {
 
 export function getSavedFirebaseConfig() {
   try {
-    const raw = localStorage.getItem(FIREBASE_CONFIG_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && parsed.apiKey && !parsed.apiKey.includes('DemoKey')) {
-        return { ...DEFAULT_CONFIG, ...parsed };
-      }
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(FIREBASE_CONFIG_KEY);
     }
-  } catch (err) {
-    console.warn('[Firebase] Error reading saved config:', err);
-  }
+  } catch {}
   return DEFAULT_CONFIG;
 }
 
@@ -60,89 +54,7 @@ export function getFirebaseStatus() {
   };
 }
 
-export function parseFirebaseConfigInput(text) {
-  if (!text || typeof text !== 'string') return null;
-  const trimmed = text.trim();
 
-  // Try parsing direct JSON
-  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-    try {
-      const obj = JSON.parse(trimmed);
-      if (obj.apiKey) {
-        return {
-          apiKey: obj.apiKey || '',
-          authDomain: obj.authDomain || '',
-          projectId: obj.projectId || '',
-          storageBucket: obj.storageBucket || '',
-          messagingSenderId: obj.messagingSenderId || '',
-          appId: obj.appId || ''
-        };
-      }
-    } catch {
-      // Not strict JSON, proceed to regex
-    }
-  }
-
-  // Regex extraction for JavaScript configuration snippets
-  const extract = (key) => {
-    const regex = new RegExp(`["']?${key}["']?\\s*:\\s*["'\`]([^"'\`]+)["'\`]`, 'i');
-    const match = trimmed.match(regex);
-    return match ? match[1].trim() : '';
-  };
-
-  const apiKey = extract('apiKey');
-  const authDomain = extract('authDomain');
-  const projectId = extract('projectId');
-  const storageBucket = extract('storageBucket');
-  const messagingSenderId = extract('messagingSenderId');
-  const appId = extract('appId');
-
-  if (apiKey || projectId) {
-    return {
-      apiKey: apiKey || '',
-      authDomain: authDomain || '',
-      projectId: projectId || '',
-      storageBucket: storageBucket || '',
-      messagingSenderId: messagingSenderId || '',
-      appId: appId || ''
-    };
-  }
-
-  return null;
-}
-
-export async function testFirebaseConnection(config) {
-  const startTime = Date.now();
-  try {
-    if (!config.apiKey || !config.projectId) {
-      return { ok: false, error: 'API Key and Project ID are required.' };
-    }
-    // Ping Google Identity Toolkit endpoint with API Key
-    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:createAuthUri?key=${encodeURIComponent(config.apiKey)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        continueUri: window.location.origin,
-        providerId: 'google.com'
-      })
-    });
-    const latency = Date.now() - startTime;
-    const json = await res.json();
-
-    if (res.ok) {
-      return { ok: true, latency, message: `Connected to Firebase in ${latency}ms!` };
-    }
-
-    if (json.error?.message?.includes('API_KEY_INVALID')) {
-      return { ok: false, error: 'Firebase API Key is invalid. Please copy the exact Web API Key from Firebase Console.' };
-    }
-
-    // Google returned an auth schema response, which confirms the API key is authentic & reachable
-    return { ok: true, latency, message: `Firebase API Key verified (${latency}ms latency). Ready for live auth.` };
-  } catch (err) {
-    return { ok: false, error: err.message || 'Unable to connect to Google Firebase endpoints. Check network connection.' };
-  }
-}
 
 export function formatFirebaseError(err) {
   if (!err) return 'An error occurred during authentication.';
@@ -266,15 +178,7 @@ export function getFirebaseAnalytics() {
   return currentAnalytics;
 }
 
-export async function saveFirebaseConfig(config) {
-  localStorage.setItem(FIREBASE_CONFIG_KEY, JSON.stringify(config));
-  return await initFirebase(true);
-}
 
-export async function resetFirebaseConfigToDemo() {
-  localStorage.removeItem(FIREBASE_CONFIG_KEY);
-  return await initFirebase(true);
-}
 
 export async function firebaseLogin(email, password) {
   const auth = getFirebaseAuth();

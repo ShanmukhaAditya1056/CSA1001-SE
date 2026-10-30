@@ -1,8 +1,6 @@
 // DevTrack Project Settings & Audit History
 import { store } from '../store.js';
 import { formatDate, formatDateTime, showToast, showConfirm } from '../ui.js';
-import { getFirebaseStatus } from '../firebase.js';
-import { openFirebaseConfigModal } from './auth.js';
 
 export function renderSettings(container) {
   const project = store.getActiveProject();
@@ -11,7 +9,6 @@ export function renderSettings(container) {
     return;
   }
 
-  const fbStatus = getFirebaseStatus();
   const reqHistory = store.getRequirements(project.id).flatMap(r => store.getRequirementHistory(r.id));
   const testRuns = store.getTestRuns(project.id);
   const bugs = store.getBugs(project.id);
@@ -145,35 +142,7 @@ export function renderSettings(container) {
             </form>
           </div>
 
-          <!-- Firebase Realtime Auth Card -->
-          <div class="bg-surface-canvas border border-border-subtle rounded-xl p-6 shadow-sm">
-            <div class="flex items-center justify-between mb-3">
-              <h2 class="font-geist text-headline-sm font-bold text-text-primary flex items-center gap-2">
-                <span class="material-symbols-outlined text-amber-500 text-[20px]">local_fire_department</span>
-                <span>Firebase Authentication</span>
-              </h2>
-              <span class="px-2 py-0.5 rounded font-jetbrains text-[10px] font-bold ${fbStatus.configured ? 'bg-status-passed-surface text-status-passed' : 'bg-status-in-progress-surface text-status-in-progress'}">
-                ${fbStatus.configured ? 'CONNECTED' : 'SANDBOX'}
-              </span>
-            </div>
-            <p class="text-text-muted text-body-sm mb-4">Real-time Firebase Authentication with Google OAuth, email/password verification, and session telemetry.</p>
-            
-            <div class="space-y-2 mb-4 font-jetbrains text-label-sm">
-              <div class="flex items-center justify-between p-2.5 rounded-lg bg-surface-base border border-border-subtle">
-                <span class="text-text-muted">Project ID:</span>
-                <span class="text-text-primary font-semibold">${fbStatus.projectId}</span>
-              </div>
-              <div class="flex items-center justify-between p-2.5 rounded-lg bg-surface-base border border-border-subtle">
-                <span class="text-text-muted">Auth Domain:</span>
-                <span class="text-text-primary font-semibold truncate max-w-[180px]">${fbStatus.authDomain}</span>
-              </div>
-            </div>
 
-            <button id="settings-open-fb-config" class="w-full py-2 px-3 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-primary border border-border-subtle font-medium text-body-sm transition-all flex items-center justify-center gap-2">
-              <span class="material-symbols-outlined text-[16px] text-amber-500">settings</span>
-              <span>Manage Firebase Credentials</span>
-            </button>
-          </div>
 
           <!-- Danger & Backup Area -->
           <div class="bg-surface-canvas border border-border-subtle rounded-xl p-6 shadow-sm">
@@ -276,7 +245,4 @@ export function renderSettings(container) {
       }, 500);
     }, { title: 'Reset Workspace Data', destructive: true, confirmText: 'Reset Factory Data' });
   });
-
-  // Attach Firebase Config Modal Trigger
-  container.querySelector('#settings-open-fb-config')?.addEventListener('click', openFirebaseConfigModal);
 }
