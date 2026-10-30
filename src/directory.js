@@ -56,8 +56,11 @@ export function describeDirectoryError(err) {
   if (code.includes('permission-denied') || raw.includes('insufficient permissions')) {
     return 'Firestore denied access. Publish firestore.rules in the Firebase Console (Firestore > Rules).';
   }
-  if (code.includes('unavailable') || raw.includes('offline') || raw.includes('unavailable')) {
-    return 'Cannot reach Firestore. Turn off ad-blocking or privacy extensions for this site, or try another network (e.g. a mobile hotspot).';
+  if (code.includes('unauthenticated')) {
+    return 'Your session has expired. Sign out and sign in again.';
+  }
+  if (code.includes('unavailable') || raw.includes('offline') || raw.includes('unavailable') || raw.includes('failed to fetch')) {
+    return 'Cannot reach Firestore. Check your internet connection, or try another network (e.g. a mobile hotspot).';
   }
   return err?.message || String(err);
 }

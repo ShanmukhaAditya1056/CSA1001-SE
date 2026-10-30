@@ -4,6 +4,7 @@ import { runClientInviteFlowTests } from './unit/clientInviteFlow.test.js';
 import { runTeamMembershipTests } from './unit/teamMembership.test.js';
 import { runStoreRulesTests } from './unit/storeRules.test.js';
 import { runRealtimeInvitationTests } from './unit/realtimeInvitations.test.js';
+import { runFirestoreRestTests } from './unit/firestoreRest.test.js';
 import { runApiSecurityTests } from './integration/apiSecurity.test.js';
 import { runLifecycleFlowTests } from './integration/lifecycleFlow.test.js';
 
@@ -15,7 +16,7 @@ async function main() {
   console.log('===============================================================');
 
   let passedSuites = 0;
-  let totalSuites = 7;
+  let totalSuites = 8;
 
   try {
     // 0. Ensure API Server is running
@@ -52,6 +53,10 @@ async function main() {
     await runRealtimeInvitationTests();
     passedSuites++;
 
+    // 3d. Firestore REST transport (used when the SDK connection is blocked)
+    await runFirestoreRestTests();
+    passedSuites++;
+
     // 4. API Security & Project Isolation Tests
     await runApiSecurityTests();
     passedSuites++;
@@ -68,6 +73,7 @@ async function main() {
     console.log('   - Team Membership, Roles & Isolation: 9/9 passed');
     console.log('   - Client Store Rule Enforcement: 7/7 passed');
     console.log('   - Real-Time Verified Invitations: 8/8 passed');
+    console.log('   - Firestore REST Client: 4/4 passed');
     console.log('   - API Security & Isolation: 7/7 suites passed');
     console.log('   - Lifecycle Journey: 12/12 steps passed');
     console.log('===============================================================');
