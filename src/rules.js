@@ -156,8 +156,11 @@ export function computeCoverage(matrix, sprints = [], tasks = []) {
 }
 
 // Team invitations: only accounts that already exist in DevTrack can be invited or added.
-export const UNREGISTERED_USER_MESSAGE = 'User not registered. The user must first create an account in DevTrack before they can be added or invited to a team.';
-export const ALREADY_MEMBER_MESSAGE = 'User is already a member of this project.';
-export const PENDING_INVITATION_MESSAGE = 'A pending invitation has already been sent to this user.';
+export const UNREGISTERED_USER_MESSAGE = 'User not registered in DevTrack. Please ask them to create an account first.';
+export const ALREADY_MEMBER_MESSAGE = 'This user is already a member of this project.';
+export const PENDING_INVITATION_MESSAGE = 'An invitation has already been sent to this user.';
+export const INVALID_EMAIL_MESSAGE = 'Please enter a valid email address.';
+export const INVITE_FORBIDDEN_MESSAGE = 'You cannot invite members to this project. Only project owners can send invitations.';
+export const INVITE_FAILED_MESSAGE = 'Unable to send invitation; try again.';
 export const SELF_INVITE_MESSAGE = 'You cannot invite yourself to a project.';
 export const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;

@@ -16,7 +16,8 @@ import { renderSettings } from './pages/settings.js';
 import { renderCicd } from './pages/cicd.js';
 import { renderGettingStarted } from './pages/gettingStarted.js';
 import { renderInvite } from './pages/invite.js';
-import { startInvitationSync, stopInvitationSync, respondToInvitation } from './directory.js';
+import { renderManual } from './pages/manual.js';
+import { startInvitationSync, stopInvitationSync, respondToInvitation, describeDirectoryError } from './directory.js';
 
 
 const app = document.getElementById('app');
@@ -38,7 +39,8 @@ const ROUTES = {
   '#/settings': { render: renderSettings, nav: 'settings' },
   '#/audit': { render: renderSettings, nav: 'settings' },
   '#/ci-cd': { render: renderCicd, nav: 'cicd' },
-  '#/getting-started': { render: renderGettingStarted, nav: 'getting-started' }
+  '#/getting-started': { render: renderGettingStarted, nav: 'getting-started' },
+  '#/help': { render: renderManual, nav: 'help' }
 };
 
 function getActiveNavKey(hash) {
@@ -212,6 +214,12 @@ function renderShell(contentRenderer) {
             <kbd class="font-jetbrains text-[10px] bg-surface-base px-1.5 py-0.5 rounded text-text-secondary border border-border-subtle">Ctrl+K</kbd>
           </button>
 
+          <!-- User Manual -->
+          <a href="#/help" id="help-manual-btn" class="flex items-center gap-1.5 h-9 px-2.5 rounded-lg border transition-all ${activeNav === 'help' ? 'bg-primary/15 text-primary border-primary/40' : 'bg-surface-panel hover:bg-surface-elevated text-text-muted hover:text-text-primary border-border-subtle'}" title="User Manual">
+            <span class="material-symbols-outlined text-[20px]">menu_book</span>
+            <span class="text-body-sm font-inter hidden lg:inline">Help</span>
+          </a>
+
           <!-- Central In-App Invitations Inbox Button -->
           <button id="inbox-invitations-btn" class="relative flex items-center justify-center w-9 h-9 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-muted hover:text-text-primary border border-border-subtle transition-all cursor-pointer" title="Project Invitations Inbox">
             ${inboxBadgeHtml(pendingInvsCount)}
@@ -242,6 +250,10 @@ function renderShell(contentRenderer) {
               <a href="#/team" class="flex items-center gap-2 px-3 py-2 rounded-lg text-body-sm text-text-secondary hover:bg-surface-panel hover:text-text-primary transition-colors">
                 <span class="material-symbols-outlined text-[16px]">manage_accounts</span>
                 <span>Team & Roles</span>
+              </a>
+              <a href="#/help" class="flex items-center gap-2 px-3 py-2 rounded-lg text-body-sm text-text-secondary hover:bg-surface-panel hover:text-text-primary transition-colors">
+                <span class="material-symbols-outlined text-[16px]">menu_book</span>
+                <span>User Manual</span>
               </a>
               <button id="menu-inbox-btn" class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-body-sm text-text-secondary hover:bg-surface-panel hover:text-text-primary transition-colors text-left cursor-pointer">
                 <div class="flex items-center gap-2">
@@ -364,9 +376,22 @@ function syncInvitationsForCurrentUser() {
       showToast(`${inv.inviteeName || inv.inviteeEmail} ${inv.status.toLowerCase()} your invitation to ${inv.projectName}.`, inv.status === 'Accepted' ? 'success' : 'info');
       if (inv.status === 'Accepted' && window.location.hash.startsWith('#/team')) route();
     },
-    onError: (err) => console.warn('[Invitations] Real-time sync error:', err)
+    onError: (err) => {
+      console.warn('[Invitations] Real-time sync error:', err);
+      // Warn once per outage; the session keeps retrying in the background.
+      if (invitationSyncDown) return;
+      invitationSyncDown = true;
+      showToast(`Live invitations unavailable: ${describeDirectoryError(err)} Retrying automatically.`, 'warning');
+    },
+    onConnected: () => {
+      if (!invitationSyncDown) return;
+      invitationSyncDown = false;
+      showToast('Live invitations reconnected.', 'success');
+    }
   });
 }
+
+let invitationSyncDown = false;
 
 function openQuickSearchModal() {
   const project = store.getActiveProject();

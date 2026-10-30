@@ -8,7 +8,8 @@ import {
   validateSprintDates, TASK_STATUSES, canTransitionTask, TEST_TYPES, TEST_RESULTS, isValidSeverity,
   canTransitionBug, BUG_VERIFY_STATES, BUG_RESOLVED_STATES, RELEASE_STATUSES, isValidReleaseName,
   buildTraceability, computeCoverage, UNREGISTERED_USER_MESSAGE, ALREADY_MEMBER_MESSAGE,
-  PENDING_INVITATION_MESSAGE, SELF_INVITE_MESSAGE, INVITATION_TTL_MS
+  PENDING_INVITATION_MESSAGE, SELF_INVITE_MESSAGE, INVITATION_TTL_MS, INVALID_EMAIL_MESSAGE,
+  INVITE_FORBIDDEN_MESSAGE
 } from '../../src/rules.js';
 
 const PORT = process.env.PORT || 4000;
@@ -537,6 +538,27 @@ export const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === '/api/v1/invitations/pending' && method === 'GET') {
+      const user = getAuthUser(req);
+      if (!user) {
+        sendJson(res, 401, null, { code: 'UNAUTHORIZED', message: 'Authentication required.' });
+        return;
+      }
+      DB.invitations.forEach(expireIfStale);
+      const mine = DB.invitations.filter(inv => inv.status === 'Pending' &&
+        (inv.inviteeId ? inv.inviteeId === user.id : inv.inviteeEmail.toLowerCase() === user.email.toLowerCase()));
+      sendJson(res, 200, mine.map(inv => ({
+        id: inv.id,
+        project: { id: inv.projectId, name: inv.projectName, key: inv.projectKey },
+        inviter: { name: inv.inviterName },
+        role: inv.role,
+        status: inv.status,
+        createdAt: inv.createdAt,
+        expiresAt: inv.expiresAt
+      })));
+      return;
+    }
+
     const tokenLookupMatch = pathname.match(/^\/api\/v1\/invitations\/token\/([^/]+)$/);
     if (tokenLookupMatch && method === 'GET') {
       const inv = findInvitation(decodeURIComponent(tokenLookupMatch[1]));
@@ -684,7 +706,7 @@ export const server = http.createServer(async (req, res) => {
         // STRICT POLICY: Only verified users who already have an account can be added
         const registeredUser = DB.users.find(u => u.email.toLowerCase() === cleanEmail);
         if (!registeredUser) {
-          sendJson(res, 404, null, { code: 'USER_NOT_FOUND', message: UNREGISTERED_USER_MESSAGE });
+          sendJson(res, 404, null, { code: 'USER_NOT_REGISTERED', message: UNREGISTERED_USER_MESSAGE });
           return;
         }
 
@@ -716,12 +738,16 @@ export const server = http.createServer(async (req, res) => {
       }
 
       if (subpath === '/invitations' && method === 'POST') {
-        requirePermission(access.role, 'team.manage');
+        if (!can(access.role, 'team.manage')) throw new HttpError(403, 'FORBIDDEN', INVITE_FORBIDDEN_MESSAGE);
 
         const body = await readBody(req);
         const cleanEmail = String(body.email || '').trim().toLowerCase();
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-          sendJson(res, 400, null, { code: 'VALIDATION_ERROR', message: 'Valid email address is required.' });
+          sendJson(res, 400, null, { code: 'VALIDATION_ERROR', message: INVALID_EMAIL_MESSAGE });
+          return;
+        }
+        if (body.role !== undefined && !ROLES.includes(body.role)) {
+          sendJson(res, 400, null, { code: 'VALIDATION_ERROR', message: `Invalid project role: ${body.role}` });
           return;
         }
         if (cleanEmail === user.email.toLowerCase()) {
@@ -755,7 +781,7 @@ export const server = http.createServer(async (req, res) => {
         // STRICT POLICY: invitations go only to accounts that already exist
         const invitee = DB.users.find(u => u.email.toLowerCase() === cleanEmail);
         if (!invitee) {
-          sendJson(res, 404, null, { code: 'USER_NOT_FOUND', message: UNREGISTERED_USER_MESSAGE });
+          sendJson(res, 404, null, { code: 'USER_NOT_REGISTERED', message: UNREGISTERED_USER_MESSAGE });
           return;
         }
 

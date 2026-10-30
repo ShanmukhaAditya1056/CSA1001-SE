@@ -13,7 +13,7 @@ export function renderTests(container) {
   }
 
   const testCases = store.getTestCases(project.id);
-  const testRuns = store.getTestRuns(project.id);
+  const testRuns = store.getTestRunsByProject(project.id);
   const reqs = store.getRequirements(project.id);
 
   const passedCount = testRuns.filter(r => r.result === 'Passed').length;

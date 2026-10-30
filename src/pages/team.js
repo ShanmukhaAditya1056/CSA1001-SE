@@ -415,7 +415,7 @@ function openAddMemberModal(projectId, onSaved) {
     }
 
     closeModal();
-    showToast(`Invitation sent to ${res.data.inviteeName} (${res.data.inviteeEmail}) as ${role}. It is now in their inbox.`, 'success');
+    showToast(`Invitation sent successfully to ${res.data.inviteeEmail}.`, 'success');
     if (onSaved) onSaved();
   });
 }

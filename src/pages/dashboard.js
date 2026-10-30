@@ -18,7 +18,7 @@ export function renderDashboard(container) {
   const dash = store.getDashboard(project.id);
   const reqs = store.getRequirements(project.id);
   const tasks = store.getTasks(project.id);
-  const testRuns = store.getTestRuns(project.id);
+  const testRuns = store.getTestRunsByProject(project.id);
   const bugs = store.getBugs(project.id);
   const releases = store.getReleases(project.id);
   const sprints = store.getSprints(project.id);

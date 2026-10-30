@@ -10,10 +10,12 @@ export function renderSettings(container) {
   }
 
   const reqHistory = store.getRequirements(project.id).flatMap(r => store.getRequirementHistory(r.id));
-  const testRuns = store.getTestRuns(project.id);
+  const testRuns = store.getTestRunsByProject(project.id);
   const bugs = store.getBugs(project.id);
   const releases = store.getReleases(project.id);
-  const systemLogs = store.getAuditLogs ? store.getAuditLogs() : [];
+  // These are rebuilt below from the project's own records; skip the store's copies.
+  const DERIVED_TYPES = ['REQUIREMENT_CREATED', 'REQUIREMENT_UPDATED', 'TEST_RUN_RECORDED', 'BUG_FILED', 'RELEASE_CREATED'];
+  const systemLogs = (store.getAuditLogs ? store.getAuditLogs() : []).filter(s => !DERIVED_TYPES.includes(s.type));
 
   // Synthesize complete audit trail
   const auditEvents = [];

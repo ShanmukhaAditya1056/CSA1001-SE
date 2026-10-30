@@ -148,7 +148,7 @@ export function renderBugs(container) {
                   </div>
 
                   <h3 class="font-geist text-headline-sm font-bold text-text-primary mb-2">${bug.title}</h3>
-                  <p class="text-body-md text-text-secondary mb-3">${bug.description}</p>
+                  ${bug.description ? `<p class="text-body-md text-text-secondary mb-3">${bug.description}</p>` : ''}
 
                   ${bug.stepsToReproduce ? `
                     <div class="p-3 bg-surface-base/80 rounded-lg border border-border-subtle mb-3">

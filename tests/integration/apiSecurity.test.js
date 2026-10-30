@@ -164,8 +164,8 @@ export async function runApiSecurityTests() {
     body: { email: 'nobody@nowhere.com', role: 'Developer' }
   });
   assert.strictEqual(unverifiedAddRes.status, 404, 'Adding unverified account must return 404');
-  assert.strictEqual(unverifiedAddRes.body.error.code, 'USER_NOT_FOUND');
-  assert.strictEqual(unverifiedAddRes.body.error.message, 'User not registered. The user must first create an account in DevTrack before they can be added or invited to a team.');
+  assert.strictEqual(unverifiedAddRes.body.error.code, 'USER_NOT_REGISTERED');
+  assert.strictEqual(unverifiedAddRes.body.error.message, 'User not registered in DevTrack. Please ask them to create an account first.');
   console.log('✓ Adding unverified non-registered email rejected with 404');
 
   // Add existing verified user (outsider registered earlier)
@@ -214,7 +214,8 @@ export async function runApiSecurityTests() {
     body: { email: 'invitee@secure.io', role: 'Tester' }
   });
   assert.strictEqual(unregInviteRes.status, 404, 'Inviting an unregistered email must return 404');
-  assert.strictEqual(unregInviteRes.body.error.message, 'User not registered. The user must first create an account in DevTrack before they can be added or invited to a team.');
+  assert.strictEqual(unregInviteRes.body.error.message, 'User not registered in DevTrack. Please ask them to create an account first.');
+  assert.strictEqual(unregInviteRes.body.error.code, 'USER_NOT_REGISTERED');
   const pendingBeforeSignup = await request('/api/v1/projects/proj-001/invitations', { headers: { 'Authorization': `Bearer ${ownerToken}` } });
   assert.strictEqual(pendingBeforeSignup.body.data.length, 0, 'No invitation may be created for an unregistered email');
 
@@ -238,6 +239,13 @@ export async function runApiSecurityTests() {
   assert.strictEqual(lookupRes.body.data.exists, true, 'checkUserRegistered finds the new account');
   const missingLookup = await request('/api/v1/users/lookup?email=ghost@secure.io', { headers: { 'Authorization': `Bearer ${ownerToken}` } });
   assert.strictEqual(missingLookup.body.data.exists, false);
+
+  const badRoleRes = await request('/api/v1/projects/proj-001/invitations', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${ownerToken}` },
+    body: { email: 'invitee@secure.io', role: 'SuperAdmin' }
+  });
+  assert.strictEqual(badRoleRes.status, 400, 'Invalid role must return 400');
 
   // B. Owner creates invitation for invitee@secure.io
   const inviteRes = await request('/api/v1/projects/proj-001/invitations', {
@@ -281,6 +289,16 @@ export async function runApiSecurityTests() {
   assert.strictEqual(mismatchAcceptRes.status, 403, 'Accepting invitation with wrong identity must return 403 Forbidden');
   assert.strictEqual(mismatchAcceptRes.body.error.code, 'FORBIDDEN');
 
+  // E2. Pending inbox is resolved from the session, and only shows the caller's invitations
+  const pendingRes = await request('/api/v1/invitations/pending', { headers: { 'Authorization': `Bearer ${inviteeToken}` } });
+  assert.strictEqual(pendingRes.status, 200);
+  assert.deepStrictEqual(pendingRes.body.data.map(i => i.id), [invitation.id]);
+  assert.strictEqual(pendingRes.body.data[0].project.name, 'DevTrack Platform');
+  assert.strictEqual(pendingRes.body.data[0].role, 'Tester');
+  const otherPending = await request('/api/v1/invitations/pending', { headers: { 'Authorization': `Bearer ${outsiderToken}` } });
+  assert.strictEqual(otherPending.body.data.length, 0, 'Other accounts cannot see this invitation');
+  assert.strictEqual((await request('/api/v1/invitations/pending')).status, 401);
+
   // G. Decline Flow Verification (Decline must NOT create membership)
   const declineRes = await request(`/api/v1/invitations/${invitation.id}/decline`, {
     method: 'POST',
@@ -298,6 +316,9 @@ export async function runApiSecurityTests() {
     false,
     'Declining must NOT add user to project members'
   );
+
+  const pendingAfterDecline = await request('/api/v1/invitations/pending', { headers: { 'Authorization': `Bearer ${inviteeToken}` } });
+  assert.strictEqual(pendingAfterDecline.body.data.length, 0, 'Declined invitations leave the pending inbox');
 
   // H. Accept Flow Verification (Create new invite, accept, verify membership created)
   const secondInviteRes = await request('/api/v1/projects/proj-001/invitations', {

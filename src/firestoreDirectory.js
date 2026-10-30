@@ -3,14 +3,24 @@
 //   userDirectory/{email}  — one record per registered account (get-only, no listing)
 //   invitations/{id}       — readable by inviter and invitee only
 import {
-  getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, onSnapshot
+  initializeFirestore, getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, onSnapshot
 } from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js';
-import { getFirebaseAuth } from './firebase.js';
+import { getFirebaseAuth, waitForAuthReady } from './firebase.js';
+
+let cachedDb = null;
 
 function db() {
+  if (cachedDb) return cachedDb;
   const auth = getFirebaseAuth();
   if (!auth) throw new Error('Firebase is not initialized');
-  return getFirestore(auth.app);
+  try {
+    cachedDb = initializeFirestore(auth.app, {
+      experimentalAutoDetectLongPolling: true
+    });
+  } catch {
+    cachedDb = getFirestore(auth.app);
+  }
+  return cachedDb;
 }
 
 const INVITATION_FIELDS = [
@@ -22,6 +32,7 @@ export const firestoreBackend = {
   remote: true,
 
   async syncUser(user) {
+    await waitForAuthReady();
     const ref = doc(db(), 'userDirectory', user.email);
     const existing = await getDoc(ref);
     const nowIso = new Date().toISOString();
@@ -36,6 +47,7 @@ export const firestoreBackend = {
   },
 
   async findUserByEmail(email) {
+    await waitForAuthReady();
     const snap = await getDoc(doc(db(), 'userDirectory', email));
     if (!snap.exists()) return null;
     const d = snap.data();
@@ -45,6 +57,7 @@ export const firestoreBackend = {
   // Security rules only allow reading invitations you sent or received, so the
   // duplicate check is scoped to the current inviter.
   async findPendingInvitation(projectId, email, inviterId) {
+    await waitForAuthReady();
     const snap = await getDocs(query(collection(db(), 'invitations'),
       where('inviterId', '==', inviterId), where('inviteeEmail', '==', email)));
     return snap.docs.map(d => d.data()).find(inv =>
@@ -52,6 +65,7 @@ export const firestoreBackend = {
   },
 
   async createInvitation(invitation) {
+    await waitForAuthReady();
     const record = Object.fromEntries(INVITATION_FIELDS.map(f => [f, invitation[f] ?? null]));
     record.expiresAtMs = Date.parse(invitation.expiresAt);
     await setDoc(doc(db(), 'invitations', invitation.id), record);
@@ -60,6 +74,7 @@ export const firestoreBackend = {
   // Link-only invitations (created before the shared inbox, or offline) have no
   // shared record; there is nothing to update for them.
   async updateInvitationStatus(id, status) {
+    await waitForAuthReady();
     const ref = doc(db(), 'invitations', id);
     if (!(await getDoc(ref)).exists()) return;
     await updateDoc(ref, { status, respondedAt: new Date().toISOString() });

@@ -63,7 +63,7 @@ export async function runClientInviteFlowTests() {
   console.log('Testing: Reject adding unregistered user to team...');
   const addUnregResult = store.addMember(activeProjId, 'unregistered@company.com', 'Developer');
   assert.ok(addUnregResult.error, 'Adding unregistered user must fail');
-  assert.match(addUnregResult.error, /^User not registered\. The user must first create an account in DevTrack/);
+  assert.strictEqual(addUnregResult.error, 'User not registered in DevTrack. Please ask them to create an account first.');
   console.log('✓ Direct addition of unregistered email blocked');
 
   // Test 4: Inviting an unregistered email is rejected; once Bob signs up, the invite is created
@@ -84,7 +84,7 @@ export async function runClientInviteFlowTests() {
   const createdInv = invResult.data;
   assert.ok(createdInv.token.startsWith('inv_'));
   assert.strictEqual(createdInv.inviteeId, bob.data.id, 'Invitation is addressed to the registered account');
-  assert.strictEqual(store.createInvitation(activeProjId, 'bob@company.com', 'Tester').error, 'A pending invitation has already been sent to this user.');
+  assert.strictEqual(store.createInvitation(activeProjId, 'bob@company.com', 'Tester').error, 'An invitation has already been sent to this user.');
   console.log('✓ Secure invitation dispatched with token:', createdInv.token.slice(0, 25) + '...');
 
   // Test 5: Simulating Device B (fresh browser where store has no local record of this invitation)

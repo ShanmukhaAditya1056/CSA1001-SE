@@ -66,6 +66,7 @@ export async function runStoreRulesTests() {
   const passRun = store.createTestRun(tc.id, { result: 'Passed' }).data;
   assert.ok(store.createBug(project.id, { title: 'x', severity: 'High', relatedTestRunId: passRun.id }).error, 'Bugs only link to Failed runs');
   const failRun = store.createTestRun(tc.id, { result: 'Failed' }).data;
+  assert.deepStrictEqual(store.getTestRunsByProject(project.id).map(r => r.id).sort(), [passRun.id, failRun.id].sort(), 'Project run log lists every run');
   const bug = store.createBug(project.id, { title: 'Overflow', severity: 'Critical', relatedTestRunId: failRun.id, relatedRequirementId: req.id }).data;
   assert.strictEqual(bug.status, 'Open');
   console.log('✓ Role permission matrix enforced in the client store');

@@ -106,7 +106,7 @@ export async function runRealtimeInvitationTests() {
   assert.strictEqual(received[0].projectName, 'Rover OS');
   assert.strictEqual(received[0].role, 'Tester');
   assert.strictEqual((await directory.sendProjectInvitation(project.id, 'carol@devtrack.io', 'Tester')).error,
-    'A pending invitation has already been sent to this user.');
+    'An invitation has already been sent to this user.');
 
   useDevice(deviceB); // Carol's device merges the delivered invitation into her inbox
   store.setFirebaseUser(carol);
@@ -163,5 +163,56 @@ export async function runRealtimeInvitationTests() {
   directory.stopInvitationSync();
   console.log('✓ Declined invitation creates no membership');
 
-  console.log('✓ All 6 Verified-Only Real-Time Invitation tests PASSED!\n');
+  // 6. Security: no double accept, no expired accept, non-owners cannot invite
+  const project3 = store.createProject({ name: 'Expiry Lab', key: 'EXP' }).data;
+  const third = await directory.sendProjectInvitation(project3.id, mallory.email, 'Viewer');
+  assert.ok(!third.error, third.error);
+  useDevice(deviceB);
+  store.setFirebaseUser(carol);
+  assert.ok((await directory.respondToInvitation(sent.data.id, 'accept')).error, 'An invitation cannot be accepted twice');
+  assert.strictEqual((await directory.sendProjectInvitation(project.id, mallory.email, 'Viewer')).error,
+    'You cannot invite members to this project. Only project owners can send invitations.', 'A Tester cannot invite');
+  store.setFirebaseUser(mallory);
+  directory.startInvitationSync(store.currentUser);
+  await flush();
+  directory.stopInvitationSync();
+  store._load().invitations.find(i => i.id === third.data.id).expiresAt = new Date(Date.now() - 1000).toISOString();
+  assert.match((await directory.respondToInvitation(third.data.id, 'accept')).error, /expired/);
+  assert.strictEqual(backend.invitations.get(third.data.id).status, 'Pending', 'Expired invitation is not accepted remotely');
+  assert.strictEqual(store.getUserRole(project3.id), null, 'Expired invitation grants no access');
+  console.log('✓ Double accept, expired accept, and non-owner invitations are blocked');
+
+  // 7. A failed directory connection is retried instead of silently dying
+  let syncFailures = 1;
+  let inboxFailures = 1;
+  const flaky = {
+    ...backend,
+    async syncUser(user) {
+      if (syncFailures-- > 0) throw Object.assign(new Error('Failed to get document because the client is offline.'), { code: 'unavailable' });
+      return backend.syncUser(user);
+    },
+    subscribeInbox(email, onChange, onError) {
+      if (inboxFailures-- > 0) { onError(Object.assign(new Error('Missing or insufficient permissions.'), { code: 'permission-denied' })); return () => {}; }
+      return backend.subscribeInbox(email, onChange, onError);
+    }
+  };
+  directory.setDirectoryBackend(flaky);
+  const lateUser = { uid: 'late-uid', email: 'late@devtrack.io', displayName: 'Late Joiner' };
+  useDevice(makeStorage());
+  store.resetData();
+  store.setFirebaseUser(lateUser);
+  const errors = [];
+  let connected = 0;
+  directory.startInvitationSync(store.currentUser, { retryBaseMs: 1, onError: err => errors.push(err), onConnected: () => connected++ });
+  for (let i = 0; i < 20 && !connected; i++) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.strictEqual(errors.length, 2, 'Each failure is reported');
+  assert.match(directory.describeDirectoryError(errors[0]), /Cannot reach Firestore/);
+  assert.match(directory.describeDirectoryError(errors[1]), /Publish firestore\.rules/);
+  assert.strictEqual(connected, 1, 'Sync reconnects after failures');
+  assert.strictEqual((await directory.checkUserRegistered(lateUser.email)).exists, true, 'Registration completes after a retry');
+  directory.stopInvitationSync();
+  directory.setDirectoryBackend(backend);
+  console.log('✓ Directory registration and inbox listener recover from offline/permission errors');
+
+  console.log('✓ All 8 Verified-Only Real-Time Invitation tests PASSED!\n');
 }

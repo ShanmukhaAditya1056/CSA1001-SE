@@ -141,7 +141,7 @@ export function renderReleases(container) {
                   const req = row.requirement;
                   const hasPassingRun = row.testRuns.some(r => r.result === 'Passed');
                   const hasFailingRun = row.testRuns.some(r => r.result === 'Failed');
-                  const openDefects = row.bugs.filter(b => !['Fixed', 'Closed'].includes(b.status));
+                  const openDefects = row.bugs.filter(b => !BUG_RESOLVED_STATES.includes(b.status));
                   const isReady = hasPassingRun && openDefects.length === 0;
 
                   return `
@@ -323,7 +323,7 @@ function exportMatrixCSV(traceability) {
     const tasks = row.tasks.map(t => `${t.id}:${t.status}`).join('; ');
     const testRuns = row.testRuns.map(tr => `${tr.testCaseId}:${tr.result}`).join('; ');
     const bugs = row.bugs.map(b => `${b.id}:${b.status}`).join('; ');
-    const isReady = row.testRuns.some(r => r.result === 'Passed') && row.bugs.filter(b => !['Fixed', 'Closed'].includes(b.status)).length === 0;
+    const isReady = row.testRuns.some(r => r.result === 'Passed') && row.bugs.filter(b => !BUG_RESOLVED_STATES.includes(b.status)).length === 0;
     csv += `"${req.id}","${req.title}","${req.priority}","${tasks}","${row.testCases.length}","${testRuns}","${bugs}","${isReady ? 'YES' : 'NO'}"\n`;
   });
 

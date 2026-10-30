@@ -5,7 +5,8 @@ import {
   SPRINT_STATUSES, validateSprintDates, TASK_STATUSES, canTransitionTask, TEST_TYPES, TEST_RESULTS,
   isValidSeverity, canTransitionBug, can, BUG_VERIFY_STATES, BUG_RESOLVED_STATES, RELEASE_STATUSES,
   isValidReleaseName, LEGACY_STATUS_MAP, buildTraceability, UNREGISTERED_USER_MESSAGE,
-  ALREADY_MEMBER_MESSAGE, PENDING_INVITATION_MESSAGE, SELF_INVITE_MESSAGE, INVITATION_TTL_MS
+  ALREADY_MEMBER_MESSAGE, PENDING_INVITATION_MESSAGE, SELF_INVITE_MESSAGE, INVITATION_TTL_MS,
+  INVALID_EMAIL_MESSAGE, INVITE_FORBIDDEN_MESSAGE
 } from './rules.js';
 
 const STORE_KEY = 'devtrack_store';
@@ -728,12 +729,12 @@ class Store {
     if (!project) return { error: 'Project not found.' };
 
     if (this.getUserRole(projectId) !== 'Owner') {
-      return { error: 'Forbidden: Only project owners can invite new members.' };
+      return { error: INVITE_FORBIDDEN_MESSAGE };
     }
 
     const cleanEmail = normalizeEmail(email);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-      return { error: 'Please enter a valid email address.' };
+      return { error: INVALID_EMAIL_MESSAGE };
     }
     if (cleanEmail === normalizeEmail(data.currentUser.email)) {
       return { error: SELF_INVITE_MESSAGE };
@@ -1360,7 +1361,7 @@ class Store {
   }
 
   getTestRunsByProject(projectId) {
-    return this._load().testRuns.filter(tr => tr.projectId === projectId);
+    return this._load().testRuns.filter(tr => tr.projectId === projectId).sort((a, b) => new Date(b.executedAt) - new Date(a.executedAt));
   }
 
   createTestRun(testCaseId, runData) {

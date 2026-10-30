@@ -20,11 +20,12 @@ async function main() {
   try {
     // 0. Ensure API Server is running
     try {
-      const ping = await fetch('http://localhost:4000/api/health').catch(() => null);
+      // Set API_BASE_URL (and PORT) to test against a fresh server on another port.
+      const ping = await fetch(`${process.env.API_BASE_URL || 'http://localhost:4000'}/api/health`).catch(() => null);
       if (!ping || !ping.ok) {
         const { server } = await import('../server/src/server.js');
         if (!server.listening) {
-          await new Promise(resolve => server.listen(4000, resolve));
+          await new Promise(resolve => server.listen(Number(process.env.PORT) || 4000, resolve));
         }
       }
     } catch (e) {
@@ -66,7 +67,7 @@ async function main() {
     console.log('   - Client Invitation & Token Tests: 10/10 passed');
     console.log('   - Team Membership, Roles & Isolation: 9/9 passed');
     console.log('   - Client Store Rule Enforcement: 7/7 passed');
-    console.log('   - Real-Time Verified Invitations: 6/6 passed');
+    console.log('   - Real-Time Verified Invitations: 8/8 passed');
     console.log('   - API Security & Isolation: 7/7 suites passed');
     console.log('   - Lifecycle Journey: 12/12 steps passed');
     console.log('===============================================================');

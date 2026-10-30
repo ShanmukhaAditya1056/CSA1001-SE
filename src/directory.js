@@ -3,7 +3,7 @@
 // recipient's inbox on any device. Without Firebase (local dev, Node tests)
 // it falls back to this browser's store, which syncs across tabs.
 import { store } from './store.js';
-import { UNREGISTERED_USER_MESSAGE, PENDING_INVITATION_MESSAGE } from './rules.js';
+import { UNREGISTERED_USER_MESSAGE, PENDING_INVITATION_MESSAGE, INVITE_FAILED_MESSAGE } from './rules.js';
 
 const normalizeEmail = (email) => (email || '').trim().toLowerCase();
 
@@ -49,6 +49,19 @@ function getBackend() {
   return backendPromise;
 }
 
+// Turns Firestore/network failures into an actionable explanation.
+export function describeDirectoryError(err) {
+  const code = String(err?.code || '').toLowerCase();
+  const raw = String(err?.message || err || '').toLowerCase();
+  if (code.includes('permission-denied') || raw.includes('insufficient permissions')) {
+    return 'Firestore denied access. Publish firestore.rules in the Firebase Console (Firestore > Rules).';
+  }
+  if (code.includes('unavailable') || raw.includes('offline') || raw.includes('unavailable')) {
+    return 'Cannot reach Firestore (offline, or the network/firewall is blocking it).';
+  }
+  return err?.message || String(err);
+}
+
 export async function checkUserRegistered(email) {
   const clean = normalizeEmail(email);
   if (!clean) return { exists: false };
@@ -79,7 +92,7 @@ export async function sendProjectInvitation(projectId, email, role) {
     }
     return res;
   } catch (err) {
-    return { error: `Could not deliver the invitation: ${err?.message || err}` };
+    return { error: `${INVITE_FAILED_MESSAGE} ${describeDirectoryError(err)}` };
   }
 }
 
@@ -94,7 +107,7 @@ export async function respondToInvitation(idOrToken, action) {
   try {
     await (await getBackend()).updateInvitationStatus(inv.id, target);
   } catch (err) {
-    return { error: `Could not update the invitation: ${err?.message || err}` };
+    return { error: `Could not update the invitation. ${describeDirectoryError(err)}` };
   }
 
   // Our own inbox listener may already have applied the change locally.
@@ -117,13 +130,19 @@ export async function revokeProjectInvitation(invitationId) {
 let activeSession = null;
 
 export function stopInvitationSync() {
-  activeSession?.unsubscribers.forEach(unsub => unsub());
+  if (!activeSession) return;
+  clearTimeout(activeSession.retryTimer);
+  activeSession.unsubscribers.splice(0).forEach(unsub => unsub());
   activeSession = null;
 }
 
 // Registers the signed-in user in the shared directory and listens for
 // invitations addressed to them (and responses to invitations they sent).
-export function startInvitationSync(user, { onNewInvitations, onInvitationResponse, onError } = {}) {
+// Firestore listeners stop permanently after an error, so any failure tears
+// the session down and reconnects with exponential backoff.
+export function startInvitationSync(user, {
+  onNewInvitations, onInvitationResponse, onError, onConnected, retryBaseMs = 2000
+} = {}) {
   if (!user?.email) return;
   if (activeSession?.userId === user.id) return;
   stopInvitationSync();
@@ -132,20 +151,44 @@ export function startInvitationSync(user, { onNewInvitations, onInvitationRespon
   const session = {
     userId: user.id,
     unsubscribers: [],
-    known: new Set(store.getUserInvitations(email).map(i => i.id))
+    known: new Set(store.getUserInvitations(email).map(i => i.id)),
+    registered: false,
+    attempt: 0,
+    retryTimer: null
   };
   activeSession = session;
+  const isActive = () => activeSession === session;
 
-  getBackend().then(async backend => {
-    if (activeSession !== session) return;
+  const fail = (err) => {
+    if (!isActive() || session.retryTimer) return;
+    session.unsubscribers.splice(0).forEach(unsub => unsub());
+    onError?.(err);
+    const delay = Math.min(60000, retryBaseMs * 2 ** session.attempt++);
+    session.retryTimer = setTimeout(() => { session.retryTimer = null; connect(); }, delay);
+  };
+
+  const connect = async () => {
+    const backend = await getBackend();
+    if (!isActive()) return;
     try {
-      await backend.syncUser({ ...user, email });
+      // Until this succeeds, other users would see this account as unregistered.
+      if (!session.registered) {
+        await backend.syncUser({ ...user, email });
+        session.registered = true;
+      }
     } catch (err) {
-      onError?.(err);
+      fail(err);
+      return;
     }
-    if (activeSession !== session) return;
+    if (!isActive()) return;
 
+    let connected = false;
     session.unsubscribers.push(backend.subscribeInbox(email, invitations => {
+      if (!connected) {
+        connected = true;
+        session.attempt = 0;
+        onConnected?.();
+      }
       const fresh = [];
       invitations.forEach(inv => {
         if (backend.remote) store.syncRemoteInvitation(inv);
@@ -154,15 +197,17 @@ export function startInvitationSync(user, { onNewInvitations, onInvitationRespon
         session.known.add(inv.id);
       });
       if (fresh.length) onNewInvitations?.(fresh);
-    }, err => onError?.(err)));
+    }, fail));
 
-    if (backend.remote) {
+    if (backend.remote && isActive()) {
       session.unsubscribers.push(backend.subscribeSent(user.id, invitations => {
         invitations.forEach(inv => {
           const changed = store.applyInvitationResponse(inv);
           if (changed) onInvitationResponse?.(changed);
         });
-      }, err => onError?.(err)));
+      }, fail));
     }
-  });
+  };
+
+  connect();
 }
