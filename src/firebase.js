@@ -11,11 +11,27 @@ import {
   updateProfile,
   GoogleAuthProvider,
   signInWithPopup,
-  browserLocalPersistence,
+  indexedDBLocalPersistence,
   setPersistence
 } from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js';
 
 const FIREBASE_CONFIG_KEY = 'devtrack_firebase_config';
+
+// Purge any Firebase credentials or auth tokens previously stored in localStorage
+function purgeLocalStorageCredentials() {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.removeItem(FIREBASE_CONFIG_KEY);
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith('firebase:authUser') || key.includes('firebase_config') || key.includes('firebase:'))) {
+        localStorage.removeItem(key);
+      }
+    }
+  } catch {}
+}
+
+purgeLocalStorageCredentials();
 
 // Default Firebase configuration (Loaded dynamically from environment variables)
 export const DEFAULT_CONFIG = {
@@ -29,11 +45,7 @@ export const DEFAULT_CONFIG = {
 };
 
 export function getSavedFirebaseConfig() {
-  try {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem(FIREBASE_CONFIG_KEY);
-    }
-  } catch {}
+  purgeLocalStorageCredentials();
   return DEFAULT_CONFIG;
 }
 
@@ -41,20 +53,6 @@ export function isFirebaseConfigured() {
   const cfg = getSavedFirebaseConfig();
   return Boolean(cfg.apiKey && cfg.projectId && !cfg.apiKey.includes('DemoKey'));
 }
-
-export function getFirebaseStatus() {
-  const cfg = getSavedFirebaseConfig();
-  const configured = isFirebaseConfigured();
-  return {
-    configured,
-    isDemo: !configured,
-    projectId: cfg.projectId || 'devtrack-demo',
-    authDomain: cfg.authDomain || 'devtrack-lifecycle.firebaseapp.com',
-    appId: cfg.appId || 'default'
-  };
-}
-
-
 
 export function formatFirebaseError(err) {
   if (!err) return 'An error occurred during authentication.';
@@ -117,7 +115,7 @@ export async function initFirebase(force = false) {
     currentApp = appsNow.length > 0 && !force ? appsNow[0] : initializeApp(config);
     currentAuth = getAuth(currentApp);
     try {
-      setPersistence(currentAuth, browserLocalPersistence).catch(() => {});
+      setPersistence(currentAuth, indexedDBLocalPersistence).catch(() => {});
     } catch {}
 
     // Initialize Firebase Analytics if measurementId is provided
@@ -154,7 +152,7 @@ export function getFirebaseAuth() {
       const apps = getApps();
       currentApp = apps.length > 0 ? apps[0] : initializeApp(config);
       currentAuth = getAuth(currentApp);
-      setPersistence(currentAuth, browserLocalPersistence).catch(() => {});
+      setPersistence(currentAuth, indexedDBLocalPersistence).catch(() => {});
     } catch (e) {
       console.warn('[Firebase] Auth init fallback:', e);
     }

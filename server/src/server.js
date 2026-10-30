@@ -64,6 +64,11 @@ function verifyPassword(password, stored) {
 
 // Seed initial workspace data safely
 export function resetDb() {
+  Object.keys(DB).forEach(collection => { DB[collection] = []; });
+  sessions.clear();
+  // Demo accounts use a published password; production starts empty.
+  if (IS_PRODUCTION) return;
+
   const seedHash = hashPassword('password123');
   DB.users = [
     { id: 'usr-admin', name: 'Lead Architect', email: 'lead@devtrack.io', passwordHash: seedHash, emailVerified: true },
@@ -116,13 +121,9 @@ export function resetDb() {
   DB.testRuns = [
     { id: 'tr-001', testCaseId: 'tc-001', projectId: 'proj-001', result: 'Passed', notes: 'All assertions verified.', executedBy: 'usr-qa', executedAt: '2026-10-03T14:30:00Z' }
   ];
-  DB.bugs = [];
   DB.releases = [
     { id: 'rel-001', projectId: 'proj-001', name: 'v1.0.0 — Foundation Release', summary: 'Core foundation and auth', status: 'Planning', targetDate: '2026-11-01', actualDate: null }
   ];
-  DB.invitations = [];
-  DB.auditLogs = [];
-  sessions.clear();
 }
 
 

@@ -7,7 +7,7 @@ services:
     restart: always
     environment:
       POSTGRES_USER: devtrack
-      POSTGRES_PASSWORD: devtrack_local_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: devtrack
     ports:
       - "5432:5432"
@@ -31,8 +31,9 @@ services:
       NODE_ENV: production
       PORT: 4000
       CLIENT_URL: http://localhost:5173
-      DATABASE_URL: postgresql://devtrack:devtrack_local_password@postgres:5432/devtrack?schema=public
-      JWT_SECRET: devtrack_secure_container_secret_production_key_492817
+      DATABASE_URL: postgresql://devtrack:${POSTGRES_PASSWORD}@postgres:5432/devtrack?schema=public
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      INVITE_SECRET: ${INVITE_SECRET:?Set INVITE_SECRET in .env}
       COOKIE_NAME: devtrack_session
     depends_on:
       postgres:
