@@ -1,7 +1,8 @@
 // DevTrack Team & Roles Management
 import { store } from '../store.js';
-import { avatar, formatDate, showToast, showModal, closeModal, showConfirm } from '../ui.js';
+import { avatar, formatDate, showToast, showModal, closeModal, showConfirm, escapeHtml } from '../ui.js';
 import { sendProjectInvitation, revokeProjectInvitation } from '../directory.js';
+import { openMemberProfile } from './memberProfile.js';
 
 export function renderTeam(container) {
   const project = store.getActiveProject();
@@ -106,7 +107,7 @@ export function renderTeam(container) {
 
             return `
               <div class="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-surface-panel/30 transition-colors">
-                <div class="flex items-center gap-3">
+                <button type="button" class="member-profile-btn flex items-center gap-3 text-left rounded-lg -m-1 p-1 hover:bg-surface-panel/60 transition-colors cursor-pointer" data-id="${member.id}" title="View ${escapeHtml(member.userName)}'s profile">
                   ${avatar(member.userName, 'w-10 h-10 text-[14px]', photo)}
                   <div>
                     <div class="flex items-center gap-2">
@@ -118,10 +119,15 @@ export function renderTeam(container) {
                     </div>
                     <span class="text-body-sm text-text-muted font-jetbrains">${member.userEmail}</span>
                   </div>
-                </div>
+                </button>
 
                 <div class="flex items-center gap-4">
                   <span class="text-body-sm text-text-muted font-jetbrains text-[11px] hidden md:inline">Joined: ${formatDate(member.addedAt)}</span>
+
+                  <button type="button" class="member-profile-btn flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-secondary hover:text-text-primary border border-border-subtle text-[12px] transition-colors cursor-pointer" data-id="${member.id}">
+                    <span class="material-symbols-outlined text-[16px]">account_circle</span>
+                    <span class="hidden sm:inline">Profile</span>
+                  </button>
 
                   ${isOwner ? `
                     <!-- Role Selector -->
@@ -287,6 +293,11 @@ export function renderTeam(container) {
         }
       }, { title: 'Revoke Invitation', destructive: true, confirmText: 'Revoke' });
     });
+  });
+
+  // Member profiles (any project member can view)
+  container.querySelectorAll('.member-profile-btn').forEach(btn => {
+    btn.addEventListener('click', () => openMemberProfile(project.id, btn.dataset.id));
   });
 
   // Add Member / Invite trigger

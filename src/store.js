@@ -705,6 +705,78 @@ class Store {
     return m ? m.role : null;
   }
 
+  // The current user's own membership record in a project (for "My Profile").
+  getMyMembership(projectId) {
+    const data = this._load();
+    if (!projectId || !data.currentUser) return null;
+    return this.getMembers(projectId).find(m => memberMatchesUser(m, data.currentUser)) || null;
+  }
+
+  // A member's footprint in one project: workload, quality work and recent
+  // activity. Only members of the project may look at its team.
+  getMemberProfile(projectId, memberId) {
+    const data = this._load();
+    if (!this.getUserRole(projectId)) return { error: 'Forbidden: You are not a member of this project.' };
+    const member = this.getMembers(projectId).find(m => m.id === memberId);
+    if (!member) return { error: 'Member not found.' };
+
+    const uid = member.userId;
+    const mine = (records, field) => uid ? (records || []).filter(r => r.projectId === projectId && r[field] === uid) : [];
+    const user = data.users.find(u => u.id === uid);
+
+    const tasks = mine(data.tasks, 'assigneeId');
+    const openTasks = tasks.filter(t => t.status !== 'Done');
+    const assignedBugs = mine(data.bugs, 'assigneeId');
+    const reportedBugs = mine(data.bugs, 'reporterId');
+    const testRuns = mine(data.testRuns, 'executedBy');
+    const requirementsAuthored = mine(data.requirements, 'createdBy');
+    const projectReqIds = new Set(data.requirements.filter(r => r.projectId === projectId).map(r => r.id));
+    const requirementEdits = uid ? data.requirementHistory.filter(h => h.changedBy === uid && projectReqIds.has(h.requirementId)) : [];
+    const sprintName = id => data.sprints.find(s => s.id === id)?.name || 'Backlog';
+    const testTitle = id => data.testCases.find(tc => tc.id === id)?.title || 'Test case';
+    const reqTitle = id => data.requirements.find(r => r.id === id)?.title || 'Requirement';
+    const statusMoves = (records, icon, verb) => uid ? records
+      .filter(r => r.projectId === projectId)
+      .flatMap(r => (r.statusHistory || []).filter(h => h.by === uid)
+        .map(h => ({ icon, text: `${verb} "${r.title}" from ${h.from} to ${h.to}`, at: h.at }))) : [];
+
+    const activity = [
+      ...requirementsAuthored.map(r => ({ icon: 'rule', text: `Created requirement "${r.title}"`, at: r.createdAt })),
+      ...requirementEdits.filter(h => h.oldValue).map(h => ({ icon: 'edit_note', text: `Changed ${h.field} of "${reqTitle(h.requirementId)}" to ${h.newValue}`, at: h.changedAt })),
+      ...testRuns.map(tr => ({ icon: 'science', text: `Ran "${testTitle(tr.testCaseId)}": ${tr.result}`, at: tr.executedAt })),
+      ...reportedBugs.map(b => ({ icon: 'pest_control', text: `Reported defect "${b.title}" (${b.severity})`, at: b.createdAt })),
+      ...mine(data.tasks, 'createdBy').map(t => ({ icon: 'add_task', text: `Created task "${t.title}"`, at: t.createdAt })),
+      ...statusMoves(data.tasks, 'view_kanban', 'Moved task'),
+      ...statusMoves(data.bugs, 'pest_control', 'Moved defect')
+    ]
+      // Each source lists events oldest-first, so on equal timestamps the
+      // later position is the newer event.
+      .map((a, seq) => ({ ...a, seq }))
+      .filter(a => a.at)
+      .sort((a, b) => (new Date(b.at) - new Date(a.at)) || (b.seq - a.seq))
+      .map(({ seq, ...a }) => a);
+
+    return {
+      data: {
+        member: { ...member, photoURL: user?.photoURL || null },
+        isMe: memberMatchesUser(member, data.currentUser),
+        stats: {
+          openTasks: openTasks.length,
+          openPoints: openTasks.reduce((sum, t) => sum + (Number(t.estimate) || 0), 0),
+          doneTasks: tasks.length - openTasks.length,
+          openBugs: assignedBugs.filter(b => !BUG_RESOLVED_STATES.includes(b.status)).length,
+          testRuns: testRuns.length,
+          passRate: testRuns.length ? Math.round((testRuns.filter(r => r.result === 'Passed').length / testRuns.length) * 100) : null
+        },
+        tasks: openTasks.map(t => ({ ...t, sprintName: sprintName(t.sprintId) })),
+        bugs: assignedBugs.filter(b => !BUG_RESOLVED_STATES.includes(b.status)),
+        reportedCount: reportedBugs.length,
+        requirementsCount: requirementsAuthored.length,
+        activity: activity.slice(0, 12)
+      }
+    };
+  }
+
   _deny(projectId, action) {
     if (!this._load().currentUser) return { error: 'Authentication required.' };
     const msg = permissionError(this.getUserRole(projectId), action);
@@ -1319,6 +1391,9 @@ class Store {
     if (invalid) return invalid;
     const { id: _id, projectId: _pid, ...safe } = updates;
     data.tasks[idx] = { ...task, ...safe, updatedAt: now() };
+    if (safe.status && safe.status !== task.status) {
+      data.tasks[idx].statusHistory = [...(task.statusHistory || []), { from: task.status, to: safe.status, by: data.currentUser.id, at: now() }];
+    }
     this._save();
     return { data: data.tasks[idx] };
   }
@@ -1428,6 +1503,9 @@ class Store {
     }
     const { id: _id, projectId: _pid, reporterId: _r, ...safe } = updates;
     data.bugs[idx] = { ...bug, ...safe, updatedAt: now() };
+    if (safe.status && safe.status !== bug.status) {
+      data.bugs[idx].statusHistory = [...(bug.statusHistory || []), { from: bug.status, to: safe.status, by: data.currentUser.id, at: now() }];
+    }
     if (safe.status && safe.status !== bug.status) {
       this.addAuditLog({ type: 'BUG_STATUS_CHANGED', title: `Defect ${bug.status} → ${safe.status}: ${bug.title}`, details: `Severity ${bug.severity}`, author: data.currentUser.name, icon: 'pest_control', color: 'text-status-defect' });
     }

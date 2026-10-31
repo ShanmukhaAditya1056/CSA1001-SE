@@ -18,6 +18,7 @@ import { renderGettingStarted } from './pages/gettingStarted.js';
 import { renderInvite } from './pages/invite.js';
 import { renderManual } from './pages/manual.js';
 import { toggleTheme, themeToggleState } from './theme.js';
+import { openMemberProfile } from './pages/memberProfile.js';
 import { startInvitationSync, stopInvitationSync, respondToInvitation, describeDirectoryError } from './directory.js';
 
 
@@ -249,6 +250,10 @@ function renderShell(contentRenderer) {
                 <div class="font-geist text-body-sm font-bold text-text-primary">${userName}</div>
                 <div class="font-jetbrains text-[11px] text-text-muted truncate">${userEmail}</div>
               </div>
+              <button id="menu-profile-btn" class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-body-sm text-text-secondary hover:bg-surface-panel hover:text-text-primary transition-colors text-left cursor-pointer">
+                <span class="material-symbols-outlined text-[16px]">account_circle</span>
+                <span>My Profile</span>
+              </button>
               <a href="#/projects" class="flex items-center gap-2 px-3 py-2 rounded-lg text-body-sm text-text-secondary hover:bg-surface-panel hover:text-text-primary transition-colors">
                 <span class="material-symbols-outlined text-[16px]">workspaces</span>
                 <span>Switch Project</span>
@@ -311,6 +316,13 @@ function renderShell(contentRenderer) {
     btn.title = label;
     btn.setAttribute('aria-label', label);
     btn.querySelector('span').textContent = icon;
+  });
+
+  // My Profile: the signed-in user's profile in the active project
+  document.getElementById('menu-profile-btn')?.addEventListener('click', () => {
+    const me = activeProject.id && store.getMyMembership(activeProject.id);
+    if (me) openMemberProfile(activeProject.id, me.id);
+    else showToast('Join or create a project to see your profile.', 'info');
   });
 
   // Quick search handler

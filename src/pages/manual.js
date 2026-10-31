@@ -128,8 +128,12 @@ const SECTIONS = [
     body: () => `
       <p>Each person has one role per project. What each role can do:</p>
       ${roleTable()}
-      ${note('Owners can change a member\'s role or remove them from the <strong>Team & Roles</strong> page. A project always keeps at least one Owner.')}`,
-    images: [{ name: 'team', caption: 'Team & Roles: current members, their roles and pending invitations.' }]
+      ${note('Owners can change a member\'s role or remove them from the <strong>Team & Roles</strong> page. A project always keeps at least one Owner.')}
+      <p class="mt-4"><strong>Member profiles.</strong> Select a member's name or <strong>Profile</strong> to see their role, when they joined, their open tasks and story points, defects assigned to them, test runs they recorded, and their recent activity in the project. Every member of the project can view profiles. Open your own from <strong>My Profile</strong> in the profile menu (top right).</p>`,
+    images: [
+      { name: 'team', caption: 'Team & Roles: current members, their roles and pending invitations.' },
+      { name: 'member-profile', caption: 'A member profile: workload, assigned defects and recent activity.' }
+    ]
   },
   {
     id: 'inviting', icon: 'person_add', title: 'Inviting teammates',
