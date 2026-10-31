@@ -17,6 +17,7 @@ import { renderCicd } from './pages/cicd.js';
 import { renderGettingStarted } from './pages/gettingStarted.js';
 import { renderInvite } from './pages/invite.js';
 import { renderManual } from './pages/manual.js';
+import { toggleTheme, themeToggleState } from './theme.js';
 import { startInvitationSync, stopInvitationSync, respondToInvitation, describeDirectoryError } from './directory.js';
 
 
@@ -214,6 +215,11 @@ function renderShell(contentRenderer) {
             <kbd class="font-jetbrains text-[10px] bg-surface-base px-1.5 py-0.5 rounded text-text-secondary border border-border-subtle">Ctrl+K</kbd>
           </button>
 
+          <!-- Light / Dark Theme -->
+          <button id="theme-toggle-btn" class="flex items-center justify-center w-9 h-9 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-muted hover:text-text-primary border border-border-subtle transition-all cursor-pointer" title="${themeToggleState().label}" aria-label="${themeToggleState().label}">
+            <span class="material-symbols-outlined text-[20px]">${themeToggleState().icon}</span>
+          </button>
+
           <!-- User Manual -->
           <a href="#/help" id="help-manual-btn" class="flex items-center gap-1.5 h-9 px-2.5 rounded-lg border transition-all ${activeNav === 'help' ? 'bg-primary/15 text-primary border-primary/40' : 'bg-surface-panel hover:bg-surface-elevated text-text-muted hover:text-text-primary border-border-subtle'}" title="User Manual">
             <span class="material-symbols-outlined text-[20px]">menu_book</span>
@@ -296,6 +302,15 @@ function renderShell(contentRenderer) {
     store.logout();
     showToast('Signed out of workspace', 'info');
     window.location.hash = '#/login';
+  });
+
+  // Theme toggle: switches instantly; only the button itself needs updating.
+  document.getElementById('theme-toggle-btn')?.addEventListener('click', (e) => {
+    const { icon, label } = themeToggleState(toggleTheme());
+    const btn = e.currentTarget;
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+    btn.querySelector('span').textContent = icon;
   });
 
   // Quick search handler

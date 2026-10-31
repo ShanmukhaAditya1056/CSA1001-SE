@@ -97,13 +97,15 @@ const SECTIONS = [
       <p class="mt-2">The <strong>top-right corner</strong> of every screen has:</p>
       ${list([
         '<strong>Quick Search</strong> (or press <kbd class="font-jetbrains text-[11px] px-1 rounded bg-surface-panel border border-border-subtle">Ctrl</kbd> + <kbd class="font-jetbrains text-[11px] px-1 rounded bg-surface-panel border border-border-subtle">K</kbd>): find any requirement, task, test or defect.',
+        '<strong>Theme</strong> (<span class="material-symbols-outlined text-[15px] align-middle">light_mode</span> / <span class="material-symbols-outlined text-[15px] align-middle">dark_mode</span>): switches between the dark and light theme. Your choice is remembered on this browser.',
         '<strong>Help</strong> (<span class="material-symbols-outlined text-[15px] align-middle">menu_book</span>): opens this manual.',
         '<strong>Invitations inbox</strong> (<span class="material-symbols-outlined text-[15px] align-middle">mail</span>): the number badge shows invitations waiting for your answer.',
         '<strong>Your profile</strong>: shows your role in the current project, and lets you switch project or sign out.'
       ])}`,
     images: [
-      { name: 'header', caption: 'Top-right controls: Quick Search, Help, Invitations inbox and your profile.' },
-      { name: 'dashboard', caption: 'The Dashboard summarises requirements, sprint progress, test results, defects and releases.' }
+      { name: 'header', caption: 'Top-right controls: Quick Search, theme toggle, Help, Invitations inbox and your profile.' },
+      { name: 'dashboard', caption: 'The Dashboard summarises requirements, sprint progress, test results, defects and releases.' },
+      { name: 'dashboard-light', caption: 'The same Dashboard in the light theme.' }
     ]
   },
   {

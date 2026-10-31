@@ -426,28 +426,28 @@ export function renderDashboard(container) {
               <svg class="w-full h-full overflow-visible" preserveAspectRatio="none" viewBox="0 0 500 180">
                 <defs>
                   <linearGradient id="velocityFill" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stop-color="#c0c1ff" stop-opacity="0.3"></stop>
-                    <stop offset="100%" stop-color="#c0c1ff" stop-opacity="0.0"></stop>
+                    <stop offset="0%" class="text-primary" stop-color="currentColor" stop-opacity="0.3"></stop>
+                    <stop offset="100%" class="text-primary" stop-color="currentColor" stop-opacity="0.0"></stop>
                   </linearGradient>
                 </defs>
                 <!-- Grid Lines -->
-                <line stroke="#334155" stroke-opacity="0.3" stroke-width="1" x1="40" x2="480" y1="20" y2="20"></line>
-                <line stroke="#334155" stroke-opacity="0.3" stroke-width="1" x1="40" x2="480" y1="65" y2="65"></line>
-                <line stroke="#334155" stroke-opacity="0.3" stroke-width="1" x1="40" x2="480" y1="110" y2="110"></line>
-                <line stroke="#334155" stroke-opacity="0.3" stroke-width="1" x1="40" x2="480" y1="155" y2="155"></line>
+                <line class="text-border-strong" stroke="currentColor" stroke-width="1" x1="40" x2="480" y1="20" y2="20"></line>
+                <line class="text-border-strong" stroke="currentColor" stroke-width="1" x1="40" x2="480" y1="65" y2="65"></line>
+                <line class="text-border-strong" stroke="currentColor" stroke-width="1" x1="40" x2="480" y1="110" y2="110"></line>
+                <line class="text-border-strong" stroke="currentColor" stroke-width="1" x1="40" x2="480" y1="155" y2="155"></line>
 
                 <!-- Ideal Burndown Line (Dashed) -->
-                <line stroke="#64748B" stroke-dasharray="4 4" stroke-width="2" x1="40" x2="480" y1="20" y2="155"></line>
+                <line class="text-text-muted" stroke="currentColor" stroke-dasharray="4 4" stroke-width="2" x1="40" x2="480" y1="20" y2="155"></line>
 
                 <!-- Actual Velocity Area & Line -->
                 <polygon fill="url(#velocityFill)" points="40,20 128,45 216,75 304,115 304,155 40,155"></polygon>
-                <polyline fill="none" stroke="#c0c1ff" stroke-linecap="round" stroke-linejoin="round" stroke-width="3" points="40,20 128,45 216,75 304,115"></polyline>
+                <polyline class="text-primary" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3" points="40,20 128,45 216,75 304,115"></polyline>
 
                 <!-- Data Points -->
-                <circle cx="40" cy="20" r="4" fill="#c0c1ff"></circle>
-                <circle cx="128" cy="45" r="4" fill="#c0c1ff"></circle>
-                <circle cx="216" cy="75" r="4" fill="#c0c1ff"></circle>
-                <circle cx="304" cy="115" r="5" fill="#7bd0ff" stroke="#0B0F19" stroke-width="2"></circle>
+                <circle cx="40" cy="20" r="4" class="text-primary" fill="currentColor"></circle>
+                <circle cx="128" cy="45" r="4" class="text-primary" fill="currentColor"></circle>
+                <circle cx="216" cy="75" r="4" class="text-primary" fill="currentColor"></circle>
+                <circle cx="304" cy="115" r="5" class="text-secondary" fill="currentColor" style="stroke: rgb(var(--c-surface-base))" stroke-width="2"></circle>
               </svg>
             </div>
           </div>

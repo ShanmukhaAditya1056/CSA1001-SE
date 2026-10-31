@@ -8,8 +8,8 @@
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.15); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.3); }
+::-webkit-scrollbar-thumb { background: rgb(var(--c-text-muted) / 0.25); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgb(var(--c-text-muted) / 0.45); }
 
 /* Animations */
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
@@ -36,7 +36,7 @@
 /* Sidebar active state */
 .nav-item-active { background: rgba(192, 193, 255, 0.08); color: #c0c1ff; border-left: 2px solid #c0c1ff; }
 .nav-item { transition: all 0.15s ease; border-left: 2px solid transparent; }
-.nav-item:hover { background: rgba(255, 255, 255, 0.04); }
+.nav-item:hover { background: rgb(var(--c-text-primary) / 0.04); }
 
 /* User manual: print / save as PDF without the app chrome */
 @media print {

@@ -9,50 +9,126 @@
   <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect" />
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+  <style>
+    :root { color-scheme: dark;
+      --c-primary-fixed: 225 224 255;
+      --c-primary: 192 193 255;
+      --c-surface-panel: 30 41 59;
+      --c-status-release: 168 85 247;
+      --c-surface-base: 11 15 25;
+      --c-tertiary: 221 183 255;
+      --c-on-secondary: 0 53 74;
+      --c-secondary: 123 208 255;
+      --c-status-defect: 244 63 94;
+      --c-surface-elevated: 51 65 85;
+      --c-primary-container: 128 131 255;
+      --c-status-passed: 16 185 129;
+      --c-text-muted: 100 116 139;
+      --c-on-primary: 16 0 169;
+      --c-text-secondary: 148 163 184;
+      --c-status-in-progress: 245 158 11;
+      --c-on-error: 105 0 5;
+      --c-text-primary: 248 250 252;
+      --c-surface-canvas: 15 23 42;
+      --c-on-primary-container: 13 0 150;
+      --c-border-strong: 148 163 184; --a-border-strong: 0.28;
+      --c-status-defect-surface: 244 63 94; --a-status-defect-surface: 0.12;
+      --c-border-subtle: 148 163 184; --a-border-subtle: 0.12;
+      --c-status-in-progress-surface: 245 158 11; --a-status-in-progress-surface: 0.12;
+      --c-status-passed-surface: 16 185 129; --a-status-passed-surface: 0.12;
+      --c-status-release-surface: 168 85 247; --a-status-release-surface: 0.12;
+    }
+    :root[data-theme="light"] { color-scheme: light;
+      --c-primary-fixed: 67 56 202;
+      --c-primary: 79 70 229;
+      --c-surface-panel: 233 238 245;
+      --c-status-release: 147 51 234;
+      --c-surface-base: 244 246 251;
+      --c-tertiary: 126 34 206;
+      --c-on-secondary: 255 255 255;
+      --c-secondary: 2 132 199;
+      --c-status-defect: 225 29 72;
+      --c-surface-elevated: 226 232 240;
+      --c-primary-container: 99 102 241;
+      --c-status-passed: 5 150 105;
+      --c-text-muted: 100 116 139;
+      --c-on-primary: 255 255 255;
+      --c-text-secondary: 71 85 105;
+      --c-status-in-progress: 217 119 6;
+      --c-on-error: 255 255 255;
+      --c-text-primary: 15 23 42;
+      --c-surface-canvas: 255 255 255;
+      --c-on-primary-container: 255 255 255;
+      --c-border-strong: 100 116 139; --a-border-strong: 0.38;
+      --c-status-defect-surface: 225 29 72; --a-status-defect-surface: 0.10;
+      --c-border-subtle: 100 116 139; --a-border-subtle: 0.20;
+      --c-status-in-progress-surface: 217 119 6; --a-status-in-progress-surface: 0.12;
+      --c-status-passed-surface: 5 150 105; --a-status-passed-surface: 0.10;
+      --c-status-release-surface: 147 51 234; --a-status-release-surface: 0.10;
+    }
+  </style>
+  <script>
+    // Apply the saved theme before first paint to avoid a flash of the wrong theme.
+    (function () {
+      var theme = 'dark';
+      try { if (localStorage.getItem('devtrack_theme') === 'light') theme = 'light'; } catch (e) {}
+      document.documentElement.setAttribute('data-theme', theme);
+      document.documentElement.classList.toggle('dark', theme === 'dark');
+    })();
+  </script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
+    // Theme colours are CSS variables (see the <style> below) so light/dark can
+    // switch at runtime. Translucent tokens keep their base alpha when used
+    // bare and take an explicit alpha from opacity modifiers such as /50.
+    function translucent(name) {
+      return function ({ opacityValue }) {
+        var explicit = /^[0-9.]+$/.test(String(opacityValue)) && String(opacityValue) !== '1';
+        return 'rgb(var(--c-' + name + ') / ' + (explicit ? opacityValue : 'var(--a-' + name + ')') + ')';
+      };
+    }
     tailwind.config = {
       darkMode: "class",
       theme: {
         extend: {
           colors: {
             "on-background": "#dae2fd",
-            "primary-fixed": "#e1e0ff",
-            "primary": "#c0c1ff",
-            "surface-panel": "#1E293B",
+            "primary-fixed": "rgb(var(--c-primary-fixed) / <alpha-value>)",
+            "primary": "rgb(var(--c-primary) / <alpha-value>)",
+            "surface-panel": "rgb(var(--c-surface-panel) / <alpha-value>)",
             "tertiary-fixed-dim": "#ddb7ff",
-            "status-release": "#A855F7",
+            "status-release": "rgb(var(--c-status-release) / <alpha-value>)",
             "on-tertiary": "#490080",
             "inverse-primary": "#494bd6",
-            "surface-base": "#0B0F19",
-            "border-strong": "rgba(148, 163, 184, 0.28)",
+            "surface-base": "rgb(var(--c-surface-base) / <alpha-value>)",
+            "border-strong": translucent("border-strong"),
             "error": "#ffb4ab",
-            "tertiary": "#ddb7ff",
+            "tertiary": "rgb(var(--c-tertiary) / <alpha-value>)",
             "on-surface-variant": "#c7c4d7",
-            "on-secondary": "#00354a",
+            "on-secondary": "rgb(var(--c-on-secondary) / <alpha-value>)",
             "surface-container-lowest": "#060e20",
             "surface-tint": "#c0c1ff",
             "surface-dim": "#0b1326",
             "secondary-container": "#00a6e0",
             "surface-bright": "#31394d",
-            "secondary": "#7bd0ff",
-            "status-defect": "#F43F5E",
+            "secondary": "rgb(var(--c-secondary) / <alpha-value>)",
+            "status-defect": "rgb(var(--c-status-defect) / <alpha-value>)",
             "on-secondary-fixed-variant": "#004c69",
-            "surface-elevated": "#334155",
+            "surface-elevated": "rgb(var(--c-surface-elevated) / <alpha-value>)",
             "surface-container": "#171f33",
-            "primary-container": "#8083ff",
+            "primary-container": "rgb(var(--c-primary-container) / <alpha-value>)",
             "outline-variant": "#464554",
             "tertiary-container": "#b76dff",
             "on-surface": "#dae2fd",
             "secondary-fixed-dim": "#7bd0ff",
             "secondary-fixed": "#c4e7ff",
             "inverse-surface": "#dae2fd",
-            "status-defect-surface": "rgba(244, 63, 94, 0.12)",
-            "border-subtle": "rgba(148, 163, 184, 0.12)",
-            "status-passed": "#10B981",
-            "text-muted": "#64748B",
+            "status-defect-surface": translucent("status-defect-surface"),
+            "border-subtle": translucent("border-subtle"),
+            "status-passed": "rgb(var(--c-status-passed) / <alpha-value>)",
+            "text-muted": "rgb(var(--c-text-muted) / <alpha-value>)",
             "outline": "#908fa0",
-            "status-in-progress-surface": "rgba(245, 158, 11, 0.12)",
+            "status-in-progress-surface": translucent("status-in-progress-surface"),
             "surface-container-highest": "#2d3449",
             "background": "#0b1326",
             "tertiary-fixed": "#f0dbff",
@@ -62,24 +138,24 @@
             "on-tertiary-container": "#400071",
             "on-tertiary-fixed-variant": "#6900b3",
             "on-secondary-container": "#00374d",
-            "status-passed-surface": "rgba(16, 185, 129, 0.12)",
+            "status-passed-surface": translucent("status-passed-surface"),
             "on-primary-fixed-variant": "#2f2ebe",
-            "on-primary": "#1000a9",
+            "on-primary": "rgb(var(--c-on-primary) / <alpha-value>)",
             "surface-variant": "#2d3449",
-            "status-release-surface": "rgba(168, 85, 247, 0.12)",
-            "text-secondary": "#94A3B8",
-            "status-in-progress": "#F59E0B",
+            "status-release-surface": translucent("status-release-surface"),
+            "text-secondary": "rgb(var(--c-text-secondary) / <alpha-value>)",
+            "status-in-progress": "rgb(var(--c-status-in-progress) / <alpha-value>)",
             "primary-fixed-dim": "#c0c1ff",
-            "on-error": "#690005",
+            "on-error": "rgb(var(--c-on-error) / <alpha-value>)",
             "on-secondary-fixed": "#001e2c",
             "surface-container-high": "#222a3d",
             "on-tertiary-fixed": "#2c0051",
-            "text-primary": "#F8FAFC",
+            "text-primary": "rgb(var(--c-text-primary) / <alpha-value>)",
             "error-container": "#93000a",
             "surface-container-low": "#131b2e",
-            "surface-canvas": "#0F172A",
+            "surface-canvas": "rgb(var(--c-surface-canvas) / <alpha-value>)",
             "on-primary-fixed": "#07006c",
-            "on-primary-container": "#0d0096"
+            "on-primary-container": "rgb(var(--c-on-primary-container) / <alpha-value>)"
           },
           borderRadius: {
             DEFAULT: "0.125rem",

@@ -250,7 +250,7 @@ export function secondaryBtn(text, onclick, { icon = '' } = {}) {
 }
 
 export function ghostBtn(text, onclick, { icon = '' } = {}) {
-  return `<button onclick="${onclick}" class="inline-flex items-center gap-2 text-text-secondary hover:text-text-primary hover:bg-white/[0.04] font-inter text-body-md py-2 px-3 rounded-lg transition-colors">
+  return `<button onclick="${onclick}" class="inline-flex items-center gap-2 text-text-secondary hover:text-text-primary hover:bg-surface-panel font-inter text-body-md py-2 px-3 rounded-lg transition-colors">
     ${icon ? `<span class="material-symbols-outlined text-[18px]">${icon}</span>` : ''}${text}
   </button>`;
 }
