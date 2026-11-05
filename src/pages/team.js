@@ -1,7 +1,7 @@
 // DevTrack Team & Roles Management
 import { store } from '../store.js';
 import { avatar, formatDate, showToast, showModal, closeModal, showConfirm, escapeHtml } from '../ui.js';
-import { sendProjectInvitation, revokeProjectInvitation } from '../directory.js';
+import { sendProjectInvitation, revokeProjectInvitation, resendProjectInvitation } from '../directory.js';
 import { openMemberProfile } from './memberProfile.js';
 
 export function renderTeam(container) {
@@ -12,16 +12,16 @@ export function renderTeam(container) {
   }
 
   const members = store.getMembers(project.id);
-  const currentUserRole = store.getUserRole(project.id);
+  const currentUser = store.currentUser;
+  const currentUserRole = store.getUserRole(project.id, currentUser?.id) || currentUser?.role;
   const isOwner = currentUserRole === 'Owner';
   const projectInvs = store.getProjectInvitations(project.id);
   const nowMs = Date.now();
   const pendingInvs = projectInvs.filter(i => i.status === 'Pending' && new Date(i.expiresAt).getTime() > nowMs);
   const historyInvs = projectInvs.filter(i => i.status !== 'Pending' || new Date(i.expiresAt).getTime() <= nowMs);
 
-
   container.innerHTML = `
-    <div class="relative w-full px-6 py-6">
+    <div class="relative w-full px-6 py-6" id="team-page-root">
       <!-- Header -->
       <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
         <div>
@@ -33,23 +33,23 @@ export function renderTeam(container) {
             <span class="text-text-primary">PROJECT ROLES</span>
           </div>
           <h1 class="font-geist text-headline-xl font-bold text-text-primary tracking-tight">Team Members & Access Control</h1>
-          <p class="text-body-sm text-text-muted mt-1">Manage project members and role-based permissions (Owner, Developer, Tester, Viewer)</p>
+          <p class="text-body-sm text-text-muted mt-1">Manage project members, role-based access control (RBAC), and team lifecycle</p>
         </div>
 
         <div class="flex items-center gap-3">
+          <!-- Strict UI Locking: Invite button disabled/hidden for non-Owners -->
           ${isOwner ? `
             <button id="add-member-btn" class="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary hover:bg-primary-fixed text-on-primary font-semibold text-body-md transition-all shadow-md shadow-primary/20 active:scale-95 cursor-pointer">
               <span class="material-symbols-outlined text-[20px]">person_add</span>
               <span>+ Invite Member</span>
             </button>
           ` : `
-            <span class="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-panel border border-border-subtle text-text-muted text-body-sm font-jetbrains">
+            <div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-panel border border-border-subtle text-text-muted text-body-sm font-jetbrains" title="Only Project Owners can invite new team members">
               <span class="material-symbols-outlined text-[16px]">lock</span>
-              <span>Owner-only team management</span>
-            </span>
+              <span>Owner-Only Access</span>
+            </div>
           `}
         </div>
-
       </div>
 
       <!-- Role Permissions Summary Grid -->
@@ -94,8 +94,11 @@ export function renderTeam(container) {
       <!-- Members Roster -->
       <div class="bg-surface-canvas border border-border-subtle rounded-xl overflow-hidden shadow-sm">
         <div class="p-4 border-b border-border-subtle flex items-center justify-between">
-          <h2 class="font-geist text-headline-sm font-bold text-text-primary">Project Roster (${members.length})</h2>
-          <span class="text-body-sm text-text-muted font-jetbrains">Role changes take effect immediately</span>
+          <div class="flex items-center gap-2">
+            <h2 class="font-geist text-headline-sm font-bold text-text-primary">Project Roster (${members.length})</h2>
+            <span class="text-xs text-text-muted font-jetbrains">• Real-time RBAC Enforcement</span>
+          </div>
+          <span class="text-body-sm text-text-muted font-jetbrains hidden sm:inline">Role changes take effect immediately</span>
         </div>
 
         <div class="divide-y divide-border-subtle">
@@ -104,6 +107,9 @@ export function renderTeam(container) {
               (store.currentUser?.email && member.userEmail && store.currentUser.email.toLowerCase() === member.userEmail.toLowerCase());
             const memberUser = store.getUser(member.userId);
             const photo = isMe ? store.currentUser?.photoURL : memberUser?.photoURL;
+            const isMemberOwner = member.role === 'Owner';
+            const ownerCount = members.filter(m => m.role === 'Owner').length;
+            const isLastOwner = isMemberOwner && ownerCount <= 1;
 
             return `
               <div class="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-surface-panel/30 transition-colors">
@@ -117,33 +123,51 @@ export function renderTeam(container) {
                       </span>
                       ${isMe ? `<span class="px-1.5 py-0.2 rounded bg-primary-container/20 text-primary text-[10px] font-jetbrains font-semibold">YOU</span>` : ''}
                     </div>
-                    <span class="text-body-sm text-text-muted font-jetbrains">${member.userEmail}</span>
+                    <span class="text-body-sm text-text-muted font-jetbrains">${member.userEmail || 'member@devtrack.io'}</span>
                   </div>
                 </button>
 
-                <div class="flex items-center gap-4">
+                <div class="flex items-center gap-3 self-end sm:self-center">
                   <span class="text-body-sm text-text-muted font-jetbrains text-[11px] hidden md:inline">Joined: ${formatDate(member.addedAt)}</span>
 
-                  <button type="button" class="member-profile-btn flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-secondary hover:text-text-primary border border-border-subtle text-[12px] transition-colors cursor-pointer" data-id="${member.id}">
-                    <span class="material-symbols-outlined text-[16px]">account_circle</span>
-                    <span class="hidden sm:inline">Profile</span>
-                  </button>
-
+                  <!-- Inline Role Management: Dropdown for Owners, Read-only badge for Non-Owners -->
                   ${isOwner ? `
-                    <!-- Role Selector -->
-                    <select class="member-role-select bg-surface-base text-text-primary font-jetbrains text-body-sm py-1.5 px-3 rounded-lg border border-border-subtle focus:border-primary outline-none" data-id="${member.id}">
-                      <option value="Owner" ${member.role === 'Owner' ? 'selected' : ''}>Owner</option>
-                      <option value="Developer" ${member.role === 'Developer' ? 'selected' : ''}>Developer</option>
-                      <option value="Tester" ${member.role === 'Tester' ? 'selected' : ''}>Tester</option>
-                      <option value="Viewer" ${member.role === 'Viewer' ? 'selected' : ''}>Viewer</option>
-                    </select>
-
-                    <button class="remove-member-btn text-text-muted hover:text-status-defect p-1.5 rounded-lg hover:bg-surface-panel transition-colors" data-id="${member.id}" data-name="${member.userName}">
-                      <span class="material-symbols-outlined text-[18px]">person_remove</span>
-                    </button>
+                    <div class="relative inline-block">
+                      <select class="member-role-select bg-surface-base text-text-primary font-jetbrains text-body-sm py-1.5 px-3 rounded-lg border border-border-subtle focus:border-primary outline-none cursor-pointer" data-id="${member.id}" data-name="${member.userName}" data-is-last-owner="${isLastOwner ? 'true' : 'false'}">
+                        <option value="Owner" ${member.role === 'Owner' ? 'selected' : ''}>👑 Owner</option>
+                        <option value="Developer" ${member.role === 'Developer' ? 'selected' : ''}>💻 Developer</option>
+                        <option value="Tester" ${member.role === 'Tester' ? 'selected' : ''}>🔍 Tester</option>
+                        <option value="Viewer" ${member.role === 'Viewer' ? 'selected' : ''}>👁 Viewer</option>
+                      </select>
+                    </div>
                   ` : `
                     <span class="font-jetbrains text-[11px] font-semibold px-2.5 py-1 rounded-full bg-surface-panel border border-border-subtle text-text-secondary">${member.role}</span>
                   `}
+
+                  <!-- 3-Dot Actions Menu for Member Management -->
+                  <div class="relative dropdown-container">
+                    <button type="button" class="action-menu-trigger p-1.5 rounded-lg hover:bg-surface-panel text-text-muted hover:text-text-primary transition-colors cursor-pointer" title="Member actions">
+                      <span class="material-symbols-outlined text-[20px]">more_vert</span>
+                    </button>
+                    <div class="action-menu-dropdown hidden absolute right-0 top-full mt-1 w-48 bg-surface-elevated border border-border-subtle rounded-xl shadow-xl py-1 z-50">
+                      <button type="button" class="view-profile-opt w-full px-3 py-2 text-left font-jetbrains text-[12px] text-text-primary hover:bg-surface-panel flex items-center gap-2 cursor-pointer" data-id="${member.id}">
+                        <span class="material-symbols-outlined text-[16px] text-secondary">account_circle</span>
+                        <span>View Profile</span>
+                      </button>
+                      <button type="button" class="copy-email-opt w-full px-3 py-2 text-left font-jetbrains text-[12px] text-text-primary hover:bg-surface-panel flex items-center gap-2 cursor-pointer" data-email="${member.userEmail}">
+                        <span class="material-symbols-outlined text-[16px] text-text-muted">content_copy</span>
+                        <span>Copy Email</span>
+                      </button>
+                      
+                      ${isOwner ? `
+                        <div class="border-t border-border-subtle my-1"></div>
+                        <button type="button" class="remove-member-opt w-full px-3 py-2 text-left font-jetbrains text-[12px] text-status-defect hover:bg-status-defect/10 flex items-center gap-2 cursor-pointer" data-id="${member.id}" data-name="${member.userName}" ${isLastOwner ? 'disabled title="Cannot remove the last project Owner"' : ''}>
+                          <span class="material-symbols-outlined text-[16px]">person_remove</span>
+                          <span>${isLastOwner ? 'Last Owner (Locked)' : 'Remove from Project'}</span>
+                        </button>
+                      ` : ''}
+                    </div>
+                  </div>
                 </div>
               </div>
             `;
@@ -151,7 +175,7 @@ export function renderTeam(container) {
         </div>
       </div>
 
-      <!-- Pending Invitations Table -->
+      <!-- Pending Invitations Table with Resend & Revoke Lifecycle -->
       <div class="mt-8 bg-surface-canvas border border-border-subtle rounded-xl overflow-hidden shadow-sm">
         <div class="p-4 border-b border-border-subtle flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div class="flex items-center gap-2.5">
@@ -160,10 +184,10 @@ export function renderTeam(container) {
             </div>
             <div>
               <h2 class="font-geist text-headline-sm font-bold text-text-primary">Pending Invitations (${pendingInvs.length})</h2>
-              <p class="text-[12px] text-text-muted">Awaiting explicit acceptance via recipient's in-app inbox or secure link</p>
+              <p class="text-[12px] text-text-muted">Awaiting explicit acceptance via recipient's in-app inbox or secure token link</p>
             </div>
           </div>
-          <span class="text-[11px] font-jetbrains text-text-muted">Links valid for 7 days</span>
+          <span class="text-[11px] font-jetbrains text-text-muted">Token validity: 7 days</span>
         </div>
 
         ${pendingInvs.length === 0 ? `
@@ -190,14 +214,24 @@ export function renderTeam(container) {
                     </div>
                   </div>
 
+                  <!-- Invitation Actions (Strictly locked to Owners) -->
                   <div class="flex items-center gap-2 self-start md:self-center">
                     <button class="copy-invite-link-btn flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-primary text-[12px] font-jetbrains border border-border-subtle transition-all cursor-pointer" data-link="${inviteLink}">
                       <span class="material-symbols-outlined text-[15px]">link</span>
                       <span>Copy Link</span>
                     </button>
+
                     ${isOwner ? `
-                      <button class="revoke-invite-btn text-text-muted hover:text-status-defect p-1.5 rounded-lg hover:bg-surface-panel transition-colors cursor-pointer" data-id="${inv.id}" data-email="${inv.inviteeEmail}" title="Revoke Invitation">
-                        <span class="material-symbols-outlined text-[18px]">cancel</span>
+                      <!-- Resend Invite Action -->
+                      <button class="resend-invite-btn flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-panel hover:bg-surface-elevated text-secondary text-[12px] font-jetbrains border border-secondary/30 hover:border-secondary transition-all cursor-pointer" data-id="${inv.id}" data-email="${inv.inviteeEmail}">
+                        <span class="material-symbols-outlined text-[15px]">send</span>
+                        <span>Resend</span>
+                      </button>
+
+                      <!-- Revoke Invite Action -->
+                      <button class="revoke-invite-btn flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-panel hover:bg-rose-500/10 text-status-defect text-[12px] font-jetbrains border border-status-defect/30 hover:border-status-defect transition-all cursor-pointer" data-id="${inv.id}" data-email="${inv.inviteeEmail}">
+                        <span class="material-symbols-outlined text-[15px]">cancel</span>
+                        <span>Revoke</span>
                       </button>
                     ` : ''}
                   </div>
@@ -232,40 +266,85 @@ export function renderTeam(container) {
     </div>
   `;
 
+  // Attach dropdown triggers for 3-dot menus
+  container.querySelectorAll('.action-menu-trigger').forEach(trigger => {
+    trigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const parent = trigger.closest('.dropdown-container');
+      const dropdown = parent?.querySelector('.action-menu-dropdown');
+      // Close other dropdowns
+      container.querySelectorAll('.action-menu-dropdown').forEach(d => {
+        if (d !== dropdown) d.classList.add('hidden');
+      });
+      dropdown?.classList.toggle('hidden');
+    });
+  });
 
-  // Attach role change
+  // Close dropdown on outside click
+  document.addEventListener('click', () => {
+    container.querySelectorAll('.action-menu-dropdown').forEach(d => d.classList.add('hidden'));
+  });
+
+  // Attach 3-dot View Profile
+  container.querySelectorAll('.view-profile-opt').forEach(btn => {
+    btn.addEventListener('click', () => openMemberProfile(project.id, btn.dataset.id));
+  });
+
+  // Attach 3-dot Copy Email
+  container.querySelectorAll('.copy-email-opt').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(btn.dataset.email);
+        showToast('Member email copied to clipboard!', 'success');
+      } catch {
+        prompt('Copy email:', btn.dataset.email);
+      }
+    });
+  });
+
+  // Attach 3-dot Remove Member
+  container.querySelectorAll('.remove-member-opt').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const memberId = btn.dataset.id;
+      const memberName = btn.dataset.name;
+      showConfirm(`Are you sure you want to remove ${memberName} from this project? They will lose all access immediately.`, () => {
+        const res = store.removeMember(memberId);
+        if (res.error) {
+          showToast(res.error, 'error');
+        } else {
+          showToast(`${memberName} was removed from the project`, 'info');
+          renderTeam(container);
+        }
+      }, { title: 'Remove Team Member', destructive: true, confirmText: 'Remove Member' });
+    });
+  });
+
+  // Attach Inline Role change with last-owner protection
   container.querySelectorAll('.member-role-select').forEach(sel => {
     sel.addEventListener('change', (e) => {
       const memberId = sel.dataset.id;
+      const memberName = sel.dataset.name;
+      const isLastOwner = sel.dataset.isLastOwner === 'true';
       const newRole = e.target.value;
+
+      if (isLastOwner && newRole !== 'Owner') {
+        showToast('Cannot change role: The project must have at least one active Owner.', 'error');
+        renderTeam(container);
+        return;
+      }
+
       const res = store.updateMemberRole(memberId, newRole);
       if (res.error) {
         showToast(res.error, 'error');
         renderTeam(container);
       } else {
-        showToast(`Role updated to ${newRole}!`, 'success');
+        showToast(`${memberName}'s role updated to ${newRole}!`, 'success');
+        renderTeam(container);
       }
     });
   });
 
-  // Attach remove member
-  container.querySelectorAll('.remove-member-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const memberId = btn.dataset.id;
-      const memberName = btn.dataset.name;
-      showConfirm(`Are you sure you want to remove ${memberName} from this project?`, () => {
-        const res = store.removeMember(memberId);
-        if (res.error) {
-          showToast(res.error, 'error');
-        } else {
-          showToast(`${memberName} removed from project`, 'info');
-          renderTeam(container);
-        }
-      }, { title: 'Remove Team Member', destructive: true, confirmText: 'Remove' });
-    });
-  });
-
-  // Copy invite link trigger
+  // Attach Copy invite link
   container.querySelectorAll('.copy-invite-link-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const link = btn.dataset.link;
@@ -278,7 +357,22 @@ export function renderTeam(container) {
     });
   });
 
-  // Revoke invitation trigger
+  // Attach Resend Invitation action
+  container.querySelectorAll('.resend-invite-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const invId = btn.dataset.id;
+      const email = btn.dataset.email;
+      const res = await resendProjectInvitation(invId);
+      if (res.error) {
+        showToast(res.error, 'error');
+      } else {
+        showToast(`Invitation resent to ${email} with renewed 7-day validity!`, 'success');
+        renderTeam(container);
+      }
+    });
+  });
+
+  // Attach Revoke Invitation action
   container.querySelectorAll('.revoke-invite-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const invId = btn.dataset.id;
@@ -295,7 +389,7 @@ export function renderTeam(container) {
     });
   });
 
-  // Member profiles (any project member can view)
+  // Member profiles button
   container.querySelectorAll('.member-profile-btn').forEach(btn => {
     btn.addEventListener('click', () => openMemberProfile(project.id, btn.dataset.id));
   });
@@ -305,7 +399,6 @@ export function renderTeam(container) {
     openAddMemberModal(project.id, () => renderTeam(container));
   });
 }
-
 
 function openAddMemberModal(projectId, onSaved) {
   const allUsers = store.getAllUsers();
@@ -418,7 +511,6 @@ function openAddMemberModal(projectId, onSaved) {
     submitBtn.disabled = false;
     submitBtn.textContent = 'Send Invitation';
 
-    // Unregistered, duplicate or invalid: keep the modal open so the owner can fix the email.
     if (res.error) {
       errorText.textContent = res.error;
       errorBox.classList.remove('hidden');
@@ -430,4 +522,3 @@ function openAddMemberModal(projectId, onSaved) {
     if (onSaved) onSaved();
   });
 }
-
