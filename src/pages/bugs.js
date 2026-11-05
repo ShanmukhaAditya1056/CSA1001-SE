@@ -1,5 +1,6 @@
 // DevTrack Defect & Bug Tracker + Interactive Severity Filters + Comprehensive Logging + Screenshot Zone
 import { store } from '../store.js';
+import { teamCollab } from '../collab.js';
 import { severityChip, priorityChip, statusChip, formatDate, showToast, showModal, closeModal, showConfirm, avatar, escapeHtml } from '../ui.js';
 import { BUG_STATUSES, BUG_TRANSITIONS } from '../rules.js';
 

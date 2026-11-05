@@ -8,6 +8,8 @@ import { runFirestoreRestTests } from './unit/firestoreRest.test.js';
 import { runMemberProfileTests } from './unit/memberProfile.test.js';
 import { runApiSecurityTests } from './integration/apiSecurity.test.js';
 import { runLifecycleFlowTests } from './integration/lifecycleFlow.test.js';
+import { runLifecycleSmokeTest } from './e2e/lifecycleSmoke.test.js';
+import { runEnterpriseTracksTests } from './unit/enterpriseTracks.test.js';
 
 async function main() {
   const startTime = Date.now();
@@ -17,12 +19,11 @@ async function main() {
   console.log('===============================================================');
 
   let passedSuites = 0;
-  let totalSuites = 9;
+  let totalSuites = 11;
 
   try {
     // 0. Ensure API Server is running
     try {
-      // Set API_BASE_URL (and PORT) to test against a fresh server on another port.
       const ping = await fetch(`${process.env.API_BASE_URL || 'http://localhost:4000'}/api/health`).catch(() => null);
       if (!ping || !ping.ok) {
         const { server } = await import('../server/src/server.js');
@@ -70,6 +71,14 @@ async function main() {
     await runLifecycleFlowTests();
     passedSuites++;
 
+    // 6. Enterprise E2E Lifecycle Smoke Suite
+    await runLifecycleSmokeTest();
+    passedSuites++;
+
+    // 7. Enterprise Tracks (GitOps, DORA, Dual Signoff, Webhooks, Collab)
+    await runEnterpriseTracksTests();
+    passedSuites++;
+
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
     console.log('===============================================================');
     console.log(`🎉 ALL TEST SUITES PASSED! (${passedSuites}/${totalSuites} suites passed in ${duration}s)`);
@@ -82,6 +91,8 @@ async function main() {
     console.log('   - Team Member Profiles: 4/4 passed');
     console.log('   - API Security & Isolation: 7/7 suites passed');
     console.log('   - Lifecycle Journey: 12/12 steps passed');
+    console.log('   - Enterprise E2E Smoke Suite: 6/6 stages passed');
+    console.log('   - Enterprise Tracks (GitOps, DORA, Signoff, Webhooks): 5/5 passed');
     console.log('===============================================================');
     process.exit(0);
   } catch (err) {

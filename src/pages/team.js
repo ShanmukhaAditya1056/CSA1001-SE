@@ -3,6 +3,7 @@ import { store } from '../store.js';
 import { avatar, formatDate, showToast, showModal, closeModal, showConfirm, escapeHtml } from '../ui.js';
 import { sendProjectInvitation, revokeProjectInvitation, resendProjectInvitation } from '../directory.js';
 import { openMemberProfile } from './memberProfile.js';
+import { getTeamPreferences, saveTeamPreferences } from '../collab.js';
 
 export function renderTeam(container) {
   const project = store.getActiveProject();
@@ -19,6 +20,7 @@ export function renderTeam(container) {
   const nowMs = Date.now();
   const pendingInvs = projectInvs.filter(i => i.status === 'Pending' && new Date(i.expiresAt).getTime() > nowMs);
   const historyInvs = projectInvs.filter(i => i.status !== 'Pending' || new Date(i.expiresAt).getTime() <= nowMs);
+  const prefs = getTeamPreferences(project.id);
 
   container.innerHTML = `
     <div class="relative w-full px-6 py-6" id="team-page-root">
@@ -263,8 +265,120 @@ export function renderTeam(container) {
           </div>
         ` : ''}
       </div>
+
+      <!-- Team Working Preferences & Workflow Agreements Card -->
+      <div class="mt-8 bg-surface-canvas border border-border-subtle rounded-xl overflow-hidden shadow-sm">
+        <div class="p-4 border-b border-border-subtle flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-lg bg-primary-container/20 text-primary flex items-center justify-center">
+              <span class="material-symbols-outlined text-[18px]">handshake</span>
+            </div>
+            <div>
+              <h2 class="font-geist text-headline-sm font-bold text-text-primary">Team Working Preferences & Workflow Agreements</h2>
+              <p class="text-[12px] text-text-muted">Define agile cadence, estimation units, WIP guardrails, and quality gates for ${escapeHtml(project.name)}</p>
+            </div>
+          </div>
+          ${isOwner ? `
+            <button id="save-team-prefs-btn" class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-primary hover:bg-primary-fixed text-on-primary font-semibold text-[12px] font-jetbrains transition-all shadow-sm active:scale-95 cursor-pointer">
+              <span class="material-symbols-outlined text-[16px]">save</span>
+              <span>Save Preferences</span>
+            </button>
+          ` : `
+            <span class="text-[11px] font-jetbrains text-text-muted">Owner-managed team policy</span>
+          `}
+        </div>
+
+        <form id="team-prefs-form" class="p-5 space-y-6">
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <!-- 1. Agile Cadence & Sizing -->
+            <div class="p-4 rounded-xl bg-surface-base border border-border-subtle space-y-3">
+              <div class="flex items-center gap-2 text-text-primary font-bold text-body-sm">
+                <span class="material-symbols-outlined text-secondary text-[18px]">calendar_month</span>
+                <span>Sprint Cadence & Sizing</span>
+              </div>
+              <div>
+                <label class="block text-[11px] font-jetbrains text-text-muted uppercase mb-1">Default Sprint Duration</label>
+                <select id="pref-sprint-duration" class="w-full bg-surface-panel text-text-primary text-body-sm px-3 py-2 rounded-lg border border-border-subtle focus:border-primary outline-none" ${!isOwner ? 'disabled' : ''}>
+                  <option value="1" ${prefs.sprintDurationWeeks === 1 ? 'selected' : ''}>1 Week (Fast iterations / Hotfixes)</option>
+                  <option value="2" ${prefs.sprintDurationWeeks === 2 ? 'selected' : ''}>2 Weeks (Industry Standard Scrum)</option>
+                  <option value="3" ${prefs.sprintDurationWeeks === 3 ? 'selected' : ''}>3 Weeks (Medium cycles)</option>
+                  <option value="4" ${prefs.sprintDurationWeeks === 4 ? 'selected' : ''}>4 Weeks (Monthly milestone releases)</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[11px] font-jetbrains text-text-muted uppercase mb-1">Story Point Scale</label>
+                <select id="pref-estimation-scale" class="w-full bg-surface-panel text-text-primary text-body-sm px-3 py-2 rounded-lg border border-border-subtle focus:border-primary outline-none" ${!isOwner ? 'disabled' : ''}>
+                  <option value="fibonacci" ${prefs.estimationScale === 'fibonacci' ? 'selected' : ''}>Fibonacci Scale (1, 2, 3, 5, 8, 13)</option>
+                  <option value="linear" ${prefs.estimationScale === 'linear' ? 'selected' : ''}>Linear Points (1, 2, 3, 4, 5)</option>
+                  <option value="tshirt" ${prefs.estimationScale === 'tshirt' ? 'selected' : ''}>T-Shirt Sizes (XS, S, M, L, XL)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- 2. Kanban Guardrails & Flow -->
+            <div class="p-4 rounded-xl bg-surface-base border border-border-subtle space-y-3">
+              <div class="flex items-center gap-2 text-text-primary font-bold text-body-sm">
+                <span class="material-symbols-outlined text-primary text-[18px]">view_kanban</span>
+                <span>Kanban Flow Guardrails</span>
+              </div>
+              <div>
+                <label class="block text-[11px] font-jetbrains text-text-muted uppercase mb-1">WIP Limit Enforcement</label>
+                <select id="pref-wip-enforcement" class="w-full bg-surface-panel text-text-primary text-body-sm px-3 py-2 rounded-lg border border-border-subtle focus:border-primary outline-none" ${!isOwner ? 'disabled' : ''}>
+                  <option value="warning" ${prefs.wipEnforcement === 'warning' ? 'selected' : ''}>Visual Alert (Highlight columns yellow/red)</option>
+                  <option value="strict" ${prefs.wipEnforcement === 'strict' ? 'selected' : ''}>Strict Guardrail (Block moves into full column)</option>
+                </select>
+              </div>
+              <div class="pt-1">
+                <label class="flex items-start gap-2.5 cursor-pointer">
+                  <input type="checkbox" id="pref-auto-assign" class="mt-0.5 rounded border-border-subtle text-primary focus:ring-primary" ${prefs.autoAssignOnProgress ? 'checked' : ''} ${!isOwner ? 'disabled' : ''}>
+                  <div class="text-[12px]">
+                    <span class="font-medium text-text-primary block">Auto-Assign on Move</span>
+                    <span class="text-text-muted">Automatically assign unassigned tasks to the team member who moves them to 'In Progress'.</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <!-- 3. Quality & Traceability Gates -->
+            <div class="p-4 rounded-xl bg-surface-base border border-border-subtle space-y-3">
+              <div class="flex items-center gap-2 text-text-primary font-bold text-body-sm">
+                <span class="material-symbols-outlined text-status-passed text-[18px]">verified</span>
+                <span>Traceability & Release Gates</span>
+              </div>
+              <div>
+                <label class="flex items-start gap-2.5 cursor-pointer">
+                  <input type="checkbox" id="pref-require-req" class="mt-0.5 rounded border-border-subtle text-primary focus:ring-primary" ${prefs.requireRequirementLink ? 'checked' : ''} ${!isOwner ? 'disabled' : ''}>
+                  <div class="text-[12px]">
+                    <span class="font-medium text-text-primary block">Strict MoSCoW Traceability</span>
+                    <span class="text-text-muted">Highlight unlinked tasks as technical debt and require spec links.</span>
+                  </div>
+                </label>
+              </div>
+              <div class="pt-2">
+                <label class="flex items-start gap-2.5 cursor-pointer">
+                  <input type="checkbox" id="pref-strict-release" class="mt-0.5 rounded border-border-subtle text-primary focus:ring-primary" ${prefs.strictReleaseGate ? 'checked' : ''} ${!isOwner ? 'disabled' : ''}>
+                  <div class="text-[12px]">
+                    <span class="font-medium text-text-primary block">Zero-Defect Release Gate</span>
+                    <span class="text-text-muted">Block release promotion to Production when open Critical/High defects exist.</span>
+                  </div>
+                </label>
+              </div>
+              <div class="pt-2">
+                <label class="flex items-start gap-2.5 cursor-pointer">
+                  <input type="checkbox" id="pref-toast-activity" class="mt-0.5 rounded border-border-subtle text-primary focus:ring-primary" ${prefs.toastOnTeamActivity ? 'checked' : ''} ${!isOwner ? 'disabled' : ''}>
+                  <div class="text-[12px]">
+                    <span class="font-medium text-text-primary block">Live Collab Alerts</span>
+                    <span class="text-text-muted">Show real-time notifications when teammates move tasks or triage defects.</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
     </div>
   `;
+
 
   // Attach dropdown triggers for 3-dot menus
   container.querySelectorAll('.action-menu-trigger').forEach(trigger => {
