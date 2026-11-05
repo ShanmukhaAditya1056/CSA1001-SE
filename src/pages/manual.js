@@ -94,19 +94,32 @@ const SECTIONS = [
     id: 'tour', icon: 'explore', title: 'Finding your way around',
     body: () => `
       <p>The <strong>left sidebar</strong> holds every module, grouped by lifecycle stage. The <strong>project switcher</strong> at the top of the sidebar changes which project you are working in.</p>
-      <p class="mt-2">The <strong>top-right corner</strong> of every screen has:</p>
+      <p class="mt-2">The <strong>top-right header bar</strong> features:</p>
       ${list([
-        '<strong>Quick Search</strong> (or press <kbd class="font-jetbrains text-[11px] px-1 rounded bg-surface-panel border border-border-subtle">Ctrl</kbd> + <kbd class="font-jetbrains text-[11px] px-1 rounded bg-surface-panel border border-border-subtle">K</kbd>): find any requirement, task, test or defect.',
-        '<strong>Theme</strong> (<span class="material-symbols-outlined text-[15px] align-middle">light_mode</span> / <span class="material-symbols-outlined text-[15px] align-middle">dark_mode</span>): switches between the dark and light theme. Your choice is remembered on this browser.',
-        '<strong>Help</strong> (<span class="material-symbols-outlined text-[15px] align-middle">menu_book</span>): opens this manual.',
-        '<strong>Invitations inbox</strong> (<span class="material-symbols-outlined text-[15px] align-middle">mail</span>): the number badge shows invitations waiting for your answer.',
-        '<strong>Your profile</strong>: shows your role in the current project, and lets you switch project or sign out.'
+        '<strong>Live Presence Roster:</strong> Shows the real-time count of connected teammates and an interactive avatar stack.',
+        '<strong>Live Activity Stream:</strong> Click the stream icon to open the sliding activity drawer tracking teammate actions.',
+        '<strong>Quick Search</strong> (<kbd class="font-jetbrains text-[11px] px-1 rounded bg-surface-panel border border-border-subtle">Ctrl</kbd> + <kbd class="font-jetbrains text-[11px] px-1 rounded bg-surface-panel border border-border-subtle">K</kbd>): search requirements, tasks, test runs, and defects instantly.',
+        '<strong>Theme</strong> (<span class="material-symbols-outlined text-[15px] align-middle">light_mode</span> / <span class="material-symbols-outlined text-[15px] align-middle">dark_mode</span>): toggle between dark and light themes.',
+        '<strong>Help</strong> (<span class="material-symbols-outlined text-[15px] align-middle">menu_book</span>): opens this user manual.',
+        '<strong>Invitations inbox</strong> (<span class="material-symbols-outlined text-[15px] align-middle">mail</span>): badge indicates pending workspace invitations.',
+        '<strong>Your profile</strong>: role in the active project, quick project switching, and sign out.'
       ])}`,
     images: [
       { name: 'header', caption: 'Top-right controls: Quick Search, theme toggle, Help, Invitations inbox and your profile.' },
       { name: 'dashboard', caption: 'The Dashboard summarises requirements, sprint progress, test results, defects and releases.' },
       { name: 'dashboard-light', caption: 'The same Dashboard in the light theme.' }
     ]
+  },
+  {
+    id: 'collab', icon: 'groups', title: 'Live presence & collaboration',
+    body: () => `
+      <p>DevTrack features real-time distributed collaboration across tabs and teammates without requiring page refreshes.</p>
+      ${list([
+        '<strong>Live Presence Roster:</strong> The top navbar displays the real-time count of active teammates online in the project with an interactive avatar stack.',
+        '<strong>Team Activity Feed Drawer:</strong> Click the live stream button in the header to slide out the activity drawer, streaming card moves, bug reports, and release promotions.',
+        '<strong>Teammate Action Toasts:</strong> Live notification popups alert you when a colleague drops a card into <em>In Review</em> or logs a critical defect.',
+        '<strong>Cross-Tab Sync:</strong> The peer bus synchronises data changes across all open browser windows and devices in real time.'
+      ])}`
   },
   {
     id: 'projects', icon: 'folder_data', title: 'Projects',
@@ -124,12 +137,13 @@ const SECTIONS = [
     ]
   },
   {
-    id: 'roles', icon: 'manage_accounts', title: 'Team & roles',
+    id: 'roles', icon: 'manage_accounts', title: 'Team, roles & agreements',
     body: () => `
       <p>Each person has one role per project. What each role can do:</p>
       ${roleTable()}
       ${note('Owners can change a member\'s role or remove them from the <strong>Team & Roles</strong> page. A project always keeps at least one Owner.')}
-      <p class="mt-4"><strong>Member profiles.</strong> Select a member's name or <strong>Profile</strong> to see their role, when they joined, their open tasks and story points, defects assigned to them, test runs they recorded, and their recent activity in the project. Every member of the project can view profiles. Open your own from <strong>My Profile</strong> in the profile menu (top right).</p>`,
+      <p class="mt-4"><strong>Team Working Agreements.</strong> Configure sprint duration (1–4 weeks), story point scale (Fibonacci, Linear, T-Shirt), WIP limit enforcement mode (Warning vs Strict), and auto-assignment rules under the <strong>Team Working Agreements</strong> panel.</p>
+      <p class="mt-2"><strong>Member profiles.</strong> Select a member\'s name or <strong>Profile</strong> to see their role, when they joined, their open tasks and story points, defects assigned to them, test runs they recorded, and their recent activity in the project.</p>`,
     images: [
       { name: 'team', caption: 'Team & Roles: current members, their roles and pending invitations.' },
       { name: 'member-profile', caption: 'A member profile: workload, assigned defects and recent activity.' }
@@ -145,7 +159,7 @@ const SECTIONS = [
         'Select <strong>Send Invitation</strong>. It appears in their DevTrack inbox straight away, with no link to share.',
         'Until they respond, it is listed under <strong>Pending Invitations</strong>, where you can revoke it. Invitations expire after 7 days.'
       ])}
-      <p class="mt-3">If the invitation can't be sent, you will see one of these messages:</p>
+      <p class="mt-3">If the invitation can\'t be sent, you will see one of these messages:</p>
       ${list([
         `<em>"${UNREGISTERED_USER_MESSAGE}"</em>`,
         `<em>"${ALREADY_MEMBER_MESSAGE}"</em>`,
@@ -187,17 +201,43 @@ const SECTIONS = [
     images: [{ name: 'requirements', caption: 'Requirements with priority, status and linked work.' }]
   },
   {
-    id: 'sprints', icon: 'view_kanban', title: 'Sprints & the task board',
+    id: 'sprints', icon: 'view_kanban', title: 'Sprints, tasks & WIP limits',
     body: () => `
       ${steps([
-        'Open <strong>Sprints & Tasks Board</strong>. Select <strong>New Sprint</strong> and give it a name, goal, start and end date. The end date must be after the start date.',
-        'A project has one <strong>Active</strong> sprint at a time; additional sprints are created as <strong>Planned</strong>.',
+        'Open <strong>Sprints & Tasks Board</strong>. Select <strong>New Sprint</strong> and give it a name, goal, start and end date.',
+        'A project has one <strong>Active</strong> sprint at a time; additional sprints are held as <strong>Planned</strong>.',
         'Select <strong>Add Task</strong>, link it to a requirement, assign it and estimate it in story points.',
-        'Move a task by changing the status selector on its card.'
+        'Click <strong>WIP Limits</strong> in the top toolbar to configure maximum cards per column. In Strict mode, moves exceeding the capacity are blocked.',
+        'Move a task by dragging or changing the status selector on its card.'
       ])}
       <p class="mt-3">Tasks follow the board in order; you can move one step forward or one step back:</p>
       ${flowTable(TASK_TRANSITIONS)}`,
     images: [{ name: 'sprints', caption: 'The sprint board for the active sprint.' }]
+  },
+  {
+    id: 'gitops', icon: 'terminal', title: 'GitOps & commit automation',
+    body: () => `
+      <p>DevTrack links code changes directly to task cards to automate board movement:</p>
+      ${steps([
+        'Open any task card on the board to view the <strong>GitOps Automation Panel</strong>.',
+        'Click <strong>Copy Branch</strong> to copy the generated branch name, e.g. <code>feat/KEY-101-auth-flow</code>.',
+        'Pushing a branch or writing a commit matching <code>feat(KEY-101): ...</code> automatically moves the task from <strong>To Do</strong> to <strong>In Progress</strong>.',
+        'Opening a Pull Request advances the task to <strong>In Review</strong>.',
+        'Merging the PR into <code>main</code> transitions the card to <strong>Done</strong> and attaches the short commit SHA (e.g. <code>a1b2c3d</code>).'
+      ])}
+      <p class="mt-3">Use <strong>Simulate PR Merge</strong> in the task modal to test the automated Git progression interactively.</p>`
+  },
+  {
+    id: 'flow-analytics', icon: 'monitoring', title: 'Flow & DORA metrics suite',
+    body: () => `
+      <p>Access the <strong>Executive Flow & DORA Analytics Suite</strong> directly from the Cockpit Header on the Dashboard (<strong>Flow & DORA Analytics</strong>):</p>
+      ${list([
+        '<strong>DORA 4 Core Metrics:</strong> Benchmarks for <em>Deployment Frequency</em>, <em>Lead Time for Changes</em>, <em>Change Failure Rate</em>, and <em>Time to Restore (MTTR)</em> with <strong>ELITE</strong>, <strong>HIGH</strong>, or <strong>MEDIUM</strong> ratings.',
+        '<strong>Cycle Time vs Lead Time Breakdown:</strong> Visual progress split detailing active development coding duration (~65%) vs code review and verification wait time (~35%).',
+        '<strong>Cumulative Flow Distribution (CFD):</strong> Live snapshot of work item counts and story point volume across all Kanban states.',
+        '<strong>Automated Bottleneck Alerts:</strong> Real-time alerts when tasks stall in <em>In Review</em> or when <em>In Progress</em> WIP limits are exceeded.',
+        '<strong>Multi-Sprint Rolling Velocity:</strong> Sprint history comparing planned vs delivered points, reliability %, and rolling team velocity.'
+      ])}`
   },
   {
     id: 'testing', icon: 'verified', title: 'Test cases & test runs',
@@ -228,19 +268,33 @@ const SECTIONS = [
     images: [{ name: 'bugs', caption: 'The Bug Tracker, filterable by severity and status.' }]
   },
   {
-    id: 'releases', icon: 'account_tree', title: 'Releases & traceability',
+    id: 'releases', icon: 'account_tree', title: 'Releases, dual sign-off & changelog',
     body: () => `
       ${steps([
-        'Open <strong>Releases & Traceability</strong> and select <strong>Cut New Release</strong>. Names start with a version number, e.g. <code>v1.2.0 — Bill Pay</code>.',
-        'Promote a release through each stage. Owners approve releases.',
-        'A release <strong>cannot be marked Released</strong> while any Critical or High defect in the project is unresolved.',
-        'The <strong>traceability matrix</strong> shows each requirement with its tasks, tests, latest results, defects and release. Use <strong>Export Matrix CSV</strong> to share it.'
+        'Open <strong>Releases & Traceability</strong> and select <strong>Cut New Release</strong>. Names start with a SemVer version, e.g. <code>v1.2.0 — Bill Pay</code>.',
+        'Promote releases from <strong>Planning</strong> to <strong>Staging</strong>.',
+        '<strong>Two-Person Integrity Gate:</strong> Deploying to <strong>Production</strong> requires dual digital certification from both the <strong>Engineering Lead</strong> (code review, architecture integrity) and the <strong>QA Lead</strong> (test verification, zero blocker defects).',
+        'Open <strong>Dual Sign-off</strong> on any milestone card to review compliance gates (0 Critical defects, passing tests) and record electronic signatures.',
+        'Open <strong>Changelog</strong> or select <strong>Changelog Hub</strong> in the toolbar to generate Keep-a-Changelog Markdown notes with 1-click <em>Copy Markdown</em> and <em>Download .md</em>.'
       ])}
-      <p class="mt-3"><strong>Release stages:</strong> ${chips(RELEASE_STATUSES)}</p>`,
+      <p class="mt-3"><strong>Release stages:</strong> ${chips(RELEASE_STATUSES)}</p>
+      <p class="mt-2">The <strong>traceability matrix</strong> shows each requirement with its tasks, tests, latest results, defects and release. Use <strong>Export Matrix CSV</strong> or <strong>Export Audit PDF</strong> to share it.</p>`,
     images: [
       { name: 'releases', caption: 'Release gates and their status.' },
       { name: 'traceability', caption: 'The traceability matrix: from each requirement through to its release.' }
     ]
+  },
+  {
+    id: 'webhooks', icon: 'hub', title: 'Outbound webhooks & integrations',
+    body: () => `
+      <p>Configure outbound webhooks in <strong>Settings</strong> to receive live alerts in your team\'s collaboration tools:</p>
+      ${steps([
+        'Open <strong>Project Settings & Audit Trail</strong> and scroll to <strong>Outbound Webhooks & CI/CD Integrations</strong>.',
+        'Select <strong>+ Register Webhook Endpoint</strong>, pick your platform (Slack, Discord, MS Teams, Custom HTTP), and paste the webhook URL.',
+        'Select the event triggers to subscribe to: <code>defect.created</code>, <code>defect.resolved</code>, <code>release.promoted</code>, <code>release.signed_off</code>, <code>task.moved</code>, or <code>test.failed</code>.',
+        'Click <strong>Test Ping</strong> on any endpoint to dispatch a simulated event and inspect the generated JSON payload.',
+        'The <strong>Recent Webhook Delivery Audit</strong> stream logs outbound dispatches with exact timestamps.'
+      ])}`
   },
   {
     id: 'search', icon: 'search', title: 'Quick Search',
@@ -254,21 +308,25 @@ const SECTIONS = [
         'Owners can update the project name, description and end date.',
         '<strong>Export Complete Workspace JSON</strong> downloads a backup of your workspace data.',
         'The audit trail lists sign-ins, membership changes, requirement edits, test runs and releases.',
+        '<strong>Outbound Webhooks Hub:</strong> Connect Slack incoming webhooks, Discord bots, Microsoft Teams, or custom HTTP REST endpoints.',
         '<strong>Reset Data</strong> is limited to Owners and permanently clears the workspace in this browser.'
       ])}
       ${note('Reset cannot be undone. Export a backup first.', 'warn')}`,
     images: [{ name: 'settings', caption: 'Project settings, data export and the audit trail.' }]
   },
   {
-    id: 'faq', icon: 'help', title: 'Troubleshooting',
+    id: 'faq', icon: 'help', title: 'Troubleshooting & FAQ',
     body: () => `
       <dl class="space-y-3">
         ${[
           ['I invited someone but they say "User not registered"', 'They need to create a DevTrack account with that exact email first, then you can invite them.'],
           ['My teammate cannot see my invitation', 'Check they are signed in with the email you invited. Invitations arrive live; if a "Live invitations unavailable" warning is shown, check the internet connection. DevTrack reconnects automatically.'],
           ['"Invalid Kanban transition"', 'Tasks move one column at a time. See the board rules in <em>Sprints & the task board</em>.'],
+          ['"WIP limit exceeded"', 'In Strict WIP mode, columns that have reached capacity cannot accept additional cards until existing cards are finished or moved.'],
+          ['"Production release blocked: Dual digital sign-off required"', 'Promoting to Production requires both Engineering Lead and QA Lead electronic sign-offs. Click "Dual Sign-off" on the release card to record signatures.'],
           ['I can\'t move a defect to Verified', 'Only Testers and Owners can verify or close defects.'],
           ['"Release gate blocked"', 'Resolve (Fix and Verify, or Close) every open Critical and High defect, then mark the release as Released.'],
+          ['How do I test my Slack or Discord webhook?', 'Go to Settings > Outbound Webhooks, click "Test Ping" on the webhook, and click "Dispatch Test Ping". You will see the delivery status and can copy the raw JSON payload.'],
           ['Buttons do nothing or show "Forbidden"', 'Your role does not allow that action. See the table in <em>Team & roles</em>, or ask a project Owner.']
         ].map(([q, a]) => `<div><dt class="font-semibold text-text-primary">${q}</dt><dd class="text-text-secondary mt-0.5">${a}</dd></div>`).join('')}
       </dl>`

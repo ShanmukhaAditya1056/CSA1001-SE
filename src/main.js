@@ -19,6 +19,7 @@ import { renderInvite } from './pages/invite.js';
 import { renderManual } from './pages/manual.js';
 import { toggleTheme, themeToggleState } from './theme.js';
 import { openMemberProfile } from './pages/memberProfile.js';
+import { teamCollab } from './collab.js';
 import { startInvitationSync, stopInvitationSync, respondToInvitation, describeDirectoryError } from './directory.js';
 
 
@@ -192,11 +193,17 @@ function renderShell(contentRenderer) {
       </div>
     </aside>
 
+    <!-- Mobile Drawer Backdrop Overlay -->
+    <div id="mobile-sidebar-backdrop" class="fixed inset-0 bg-black/60 backdrop-blur-xs z-40 hidden transition-opacity lg:hidden"></div>
+
     <!-- Top Navigation Header -->
-    <div id="content-shell" class="pl-64 flex flex-col min-h-screen transition-all duration-300">
-      <header id="top-header" class="fixed top-0 left-64 right-0 h-14 bg-surface-canvas/90 backdrop-blur-xl border-b border-border-subtle z-50 shadow-sm flex items-center justify-between px-6 transition-all duration-300">
-        <!-- Left: Project Indicator -->
-        <div class="flex items-center gap-4">
+    <div id="content-shell" class="pl-0 lg:pl-64 flex flex-col min-h-screen transition-all duration-300">
+      <header id="top-header" class="fixed top-0 left-0 lg:left-64 right-0 h-14 bg-surface-canvas/90 backdrop-blur-xl border-b border-border-subtle z-50 shadow-sm flex items-center justify-between px-4 lg:px-6 transition-all duration-300">
+        <!-- Left: Mobile Hamburger + Project Indicator -->
+        <div class="flex items-center gap-2 lg:gap-4">
+          <button id="mobile-hamburger-btn" class="lg:hidden p-1.5 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-primary border border-border-subtle transition-colors cursor-pointer mr-1" title="Toggle Navigation Drawer" aria-label="Toggle Navigation Drawer">
+            <span class="material-symbols-outlined text-[20px]">menu</span>
+          </button>
           <div class="flex items-center gap-2">
             <span class="font-jetbrains text-[11px] font-bold px-2 py-0.5 rounded bg-primary-container/20 text-primary">${project.key}</span>
             <span class="font-geist text-body-md font-bold text-text-primary">${project.name}</span>
@@ -276,6 +283,27 @@ function renderShell(contentRenderer) {
           <button id="theme-toggle-btn" class="flex items-center justify-center w-9 h-9 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-muted hover:text-text-primary border border-border-subtle transition-all cursor-pointer" title="${themeToggleState().label}" aria-label="${themeToggleState().label}">
             <span class="material-symbols-outlined text-[20px]">${themeToggleState().icon}</span>
           </button>
+
+          
+          <!-- Live Team Collab Stream Activity Button -->
+          <div class="relative" id="team-stream-dropdown-wrapper">
+            <button id="team-stream-btn" class="relative flex items-center justify-center w-9 h-9 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-muted hover:text-text-primary border border-border-subtle transition-all cursor-pointer" title="Live Team Activity Stream">
+              <span class="material-symbols-outlined text-[20px] text-secondary">bolt</span>
+              <span id="team-stream-badge" class="hidden absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-secondary animate-ping"></span>
+            </button>
+            <div id="team-stream-menu" class="absolute right-0 top-full mt-1.5 w-80 bg-surface-canvas border border-border-strong rounded-xl p-3 shadow-2xl hidden z-[100] animate-scale-in">
+              <div class="flex items-center justify-between border-b border-border-subtle pb-2 mb-2">
+                <div class="flex items-center gap-1.5 font-geist font-bold text-body-sm text-text-primary">
+                  <span class="material-symbols-outlined text-[16px] text-secondary">bolt</span>
+                  <span>Live Team Stream</span>
+                </div>
+                <span id="team-stream-count" class="text-[10px] font-jetbrains text-text-muted">Real-time sync</span>
+              </div>
+              <div id="team-stream-items" class="space-y-2 max-h-72 overflow-y-auto pr-1">
+                <div class="text-[11px] font-jetbrains text-text-muted text-center py-4">No recent team activities. Move tasks or file defects to broadcast live!</div>
+              </div>
+            </div>
+          </div>
 
           <!-- User Manual -->
           <a href="#/help" id="help-manual-btn" class="flex items-center gap-1.5 h-9 px-2.5 rounded-lg border transition-all ${activeNav === 'help' ? 'bg-primary/15 text-primary border-primary/40' : 'bg-surface-panel hover:bg-surface-elevated text-text-muted hover:text-text-primary border-border-subtle'}" title="User Manual">
@@ -391,6 +419,21 @@ function renderShell(contentRenderer) {
   });
 
   // Theme toggle: switches instantly; only the button itself needs updating.
+  
+  // Team Collab Stream Dropdown toggle
+  const teamStreamBtn = document.getElementById('team-stream-btn');
+  const teamStreamMenu = document.getElementById('team-stream-menu');
+  teamStreamBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    teamStreamMenu?.classList.toggle('hidden');
+    refreshTeamStream();
+  });
+  document.addEventListener('click', () => {
+    teamStreamMenu?.classList.add('hidden');
+  });
+  refreshPresencePill();
+  refreshTeamStream();
+
   document.getElementById('theme-toggle-btn')?.addEventListener('click', (e) => {
     const { icon, label } = themeToggleState(toggleTheme());
     const btn = e.currentTarget;
@@ -503,8 +546,16 @@ function renderShell(contentRenderer) {
     openCreateProjectModal(() => renderShell(contentRenderer));
   });
 
+  // Mobile Hamburger Toggle & Backdrop handlers
+  document.getElementById('mobile-hamburger-btn')?.addEventListener('click', toggleMobileDrawer);
+  document.getElementById('mobile-sidebar-backdrop')?.addEventListener('click', closeMobileDrawer);
+
+  // Close mobile drawer on resize if expanding to desktop
+  window.addEventListener('resize', applySidebarState);
+
   // Explicit sidebar navigation click handler
   document.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', () => { closeMobileDrawer(); });
     item.addEventListener('click', (e) => {
       const href = item.getAttribute('href');
       if (href) {
@@ -549,6 +600,61 @@ function refreshInboxBadge() {
 }
 
 store.subscribe(refreshInboxBadge);
+
+// Real-Time Team Presence & Activity Stream Handlers
+function refreshPresencePill() {
+  const container = document.getElementById('team-presence-avatars');
+  const label = document.getElementById('team-presence-text');
+  if (!container || !label) return;
+  const online = teamCollab.getOnlineMembers();
+  label.textContent = online.length === 1 ? '1 Online' : `${online.length} Online`;
+  container.innerHTML = online.map(m => `
+    <div class="w-5 h-5 rounded-full ring-2 ring-surface-canvas flex items-center justify-center text-[9px] font-bold font-jetbrains text-white ${m.isMe ? 'bg-primary' : 'bg-secondary'}" title="${m.name} (${m.isMe ? 'You' : 'Active'})">
+      ${m.name.charAt(0).toUpperCase()}
+    </div>
+  `).join('');
+}
+
+function refreshTeamStream() {
+  const listEl = document.getElementById('team-stream-items');
+  const countEl = document.getElementById('team-stream-count');
+  const badge = document.getElementById('team-stream-badge');
+  if (!listEl) return;
+  const activities = teamCollab.getRecentActivities();
+  if (countEl) countEl.textContent = `${activities.length} recent`;
+  if (badge && activities.length > 0) {
+    badge.classList.remove('hidden');
+    setTimeout(() => badge.classList.add('hidden'), 3000);
+  }
+  if (activities.length === 0) {
+    listEl.innerHTML = `<div class="text-[11px] font-jetbrains text-text-muted text-center py-4">No recent team activities. Move tasks or file defects to broadcast live!</div>`;
+    return;
+  }
+  listEl.innerHTML = activities.map(a => `
+    <div class="p-2 rounded-lg bg-surface-base hover:bg-surface-panel/70 transition-colors border border-border-subtle/50 text-[11px] font-jetbrains">
+      <div class="flex items-center justify-between text-text-muted mb-0.5">
+        <span class="font-bold text-text-primary">${a.user.name}</span>
+        <span>${new Date(a.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+      </div>
+      <div class="text-text-secondary leading-tight">${a.title}</div>
+      <div class="text-[10px] text-text-muted mt-0.5 truncate">${a.details}</div>
+    </div>
+  `).join('');
+}
+
+teamCollab.onPresenceChange(refreshPresencePill);
+teamCollab.onActivity(() => {
+  refreshTeamStream();
+});
+
+window.addEventListener('devtrack:team-action', () => {
+  // Re-route gently if on board or bugs to reflect changes without full reload
+  const hash = window.location.hash || '';
+  if (hash.startsWith('#/sprints') || hash.startsWith('#/board') || hash.startsWith('#/bugs')) {
+    route();
+  }
+});
+
 
 function syncInvitationsForCurrentUser() {
   const user = store.currentUser;
@@ -834,25 +940,62 @@ export function toggleSidebarCollapsed() {
   showToast(isSidebarCollapsed ? 'Sidebar collapsed (press [ / ] to expand)' : 'Sidebar expanded', 'info');
 }
 
+let isMobileDrawerOpen = false;
+
+export function toggleMobileDrawer() {
+  isMobileDrawerOpen = !isMobileDrawerOpen;
+  applySidebarState();
+}
+
+export function closeMobileDrawer() {
+  if (isMobileDrawerOpen) {
+    isMobileDrawerOpen = false;
+    applySidebarState();
+  }
+}
+
 export function applySidebarState() {
   const sidebar = document.getElementById('app-sidebar');
   const contentShell = document.getElementById('content-shell');
   const topHeader = document.getElementById('top-header');
+  const backdrop = document.getElementById('mobile-sidebar-backdrop');
 
   if (!sidebar || !contentShell || !topHeader) return;
 
-  if (isSidebarCollapsed) {
-    sidebar.classList.add('-translate-x-full');
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024;
+
+  if (isMobile) {
+    if (isMobileDrawerOpen) {
+      sidebar.classList.remove('-translate-x-full');
+      sidebar.classList.add('translate-x-0');
+      backdrop?.classList.remove('hidden');
+    } else {
+      sidebar.classList.add('-translate-x-full');
+      sidebar.classList.remove('translate-x-0');
+      backdrop?.classList.add('hidden');
+    }
     contentShell.classList.remove('pl-64');
     contentShell.classList.add('pl-0');
     topHeader.classList.remove('left-64');
     topHeader.classList.add('left-0');
   } else {
-    sidebar.classList.remove('-translate-x-full');
-    contentShell.classList.remove('pl-0');
-    contentShell.classList.add('pl-64');
-    topHeader.classList.remove('left-0');
-    topHeader.classList.add('left-64');
+    // Desktop layout
+    backdrop?.classList.add('hidden');
+    if (isSidebarCollapsed) {
+      sidebar.classList.add('-translate-x-full');
+      sidebar.classList.remove('translate-x-0');
+      contentShell.classList.remove('pl-64');
+      contentShell.classList.add('pl-0');
+      topHeader.classList.remove('left-64');
+      topHeader.classList.add('left-0');
+    } else {
+      sidebar.classList.remove('-translate-x-full');
+      sidebar.classList.add('translate-x-0');
+      contentShell.classList.remove('pl-0');
+      contentShell.classList.add('pl-64');
+      topHeader.classList.remove('left-0');
+      topHeader.classList.add('left-64');
+    }
   }
 }
 

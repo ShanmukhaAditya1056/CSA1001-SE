@@ -2,6 +2,8 @@
 import { store } from '../store.js';
 import { priorityChip, statusChip, avatar, formatDate, showToast, showModal, closeModal, showConfirm, escapeHtml } from '../ui.js';
 import { TASK_TRANSITIONS, canTransitionTask, validateSprintDates } from '../rules.js';
+import { teamCollab, getTeamPreferences } from '../collab.js';
+import { generateBranchName, recordGitCommit, updatePullRequest } from '../gitops.js';
 import Sortable from 'sortablejs';
 
 let selectedSprintId = 'ALL';
@@ -158,6 +160,12 @@ export function renderSprints(container) {
         </div>
 
         <div class="flex items-center flex-wrap gap-2.5">
+          <!-- Burndown Chart & Velocity Analytics Button -->
+          <button id="open-burndown-btn" class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-primary font-inter text-label-md border border-border-subtle transition-all cursor-pointer shadow-sm active:scale-95" title="View Sprint Burndown & Velocity Analytics">
+            <span class="material-symbols-outlined text-[18px] text-primary">show_chart</span>
+            <span>Burndown Chart</span>
+          </button>
+
           <!-- WIP Limits Config Button -->
           <button id="configure-wip-btn" class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-primary font-inter text-label-md border border-border-subtle transition-all cursor-pointer shadow-sm active:scale-95" title="Configure Work-In-Progress limits">
             <span class="material-symbols-outlined text-[18px] text-secondary">tune</span>
@@ -212,7 +220,7 @@ export function renderSprints(container) {
         </div>
 
         <!-- Velocity & Story Points -->
-        <div class="flex items-center gap-4 font-jetbrains text-mono-md">
+        <div id="velocity-banner-btn" class="flex items-center gap-4 font-jetbrains text-mono-md cursor-pointer hover:opacity-85 transition-opacity" title="Click to open Burndown & Velocity Analytics">
           <div class="flex items-center gap-2 text-[12px]">
             <span class="text-text-muted">Sprint Velocity:</span>
             <span class="font-bold text-text-primary">${donePts} / ${totalPts} pts</span>
@@ -354,6 +362,13 @@ export function renderSprints(container) {
     renderSprints(container);
   });
 
+  // Attach Burndown Modal trigger
+  const triggerBurndown = () => {
+    openBurndownModal(project, currentSprint, filteredTasks, allTasks);
+  };
+  container.querySelector('#open-burndown-btn')?.addEventListener('click', triggerBurndown);
+  container.querySelector('#velocity-banner-btn')?.addEventListener('click', triggerBurndown);
+
   // Attach WIP Configuration trigger
   container.querySelector('#configure-wip-btn')?.addEventListener('click', () => {
     openWipConfigModal(project.id, () => renderSprints(container));
@@ -453,6 +468,27 @@ function renderTaskCard(task, project, allTasks, members, reqs, columns) {
         </div>
       ` : ''}
 
+
+      <!-- GitOps Branch & PR Badge -->
+      ${task.gitBranch || task.pullRequest || (task.gitCommits && task.gitCommits.length > 0) ? `
+        <div class="flex items-center gap-1.5 text-[10px] font-jetbrains px-2 py-0.5 rounded bg-surface-base border border-border-subtle mb-2 text-text-muted">
+          <span class="material-symbols-outlined text-[13px] text-primary shrink-0">commit</span>
+          <span class="truncate text-text-secondary font-medium" title="${escapeHtml(task.gitBranch || 'main')}">${escapeHtml(task.gitBranch || 'main')}</span>
+          ${task.pullRequest ? `
+            <span class="ml-auto inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[9px] font-bold ${
+              task.pullRequest.status === 'merged' ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30' :
+              task.pullRequest.status === 'open' ? 'bg-status-passed-surface text-status-passed border border-status-passed/30' :
+              'bg-surface-panel text-text-muted'
+            }">
+              <span class="material-symbols-outlined text-[11px]">${task.pullRequest.status === 'merged' ? 'call_merge' : 'call_split'}</span>
+              #${task.pullRequest.id}
+            </span>
+          ` : (task.gitCommits && task.gitCommits.length > 0 ? `
+            <span class="ml-auto text-[9px] text-text-muted shrink-0">${task.gitCommits.length} commits</span>
+          ` : '')}
+        </div>
+      ` : ''}
+
       <!-- Card Footer: Assignee, Due Date & Fallback Dropdown -->
       <div class="pt-2 border-t border-border-subtle/60 flex items-center justify-between text-body-sm gap-1.5">
         <div class="flex items-center gap-1.5 min-w-0 flex-1">
@@ -524,6 +560,7 @@ function initKanbanSortable(container, project) {
           showToast(res.error, 'error');
         } else {
           showToast(`Task moved to ${newStatus}!`, 'info');
+          teamCollab.broadcastAction({ action: 'TASK_MOVED', title: `Task moved to ${newStatus}`, details: `Task [${formatTaskKey(project.key, { id: taskId }, allTasks)}] moved to ${newStatus}` });
         }
         renderSprints(container);
       }
@@ -572,6 +609,7 @@ function openWipConfigModal(projectId, onSaved) {
         </div>
       </div>
 
+
       <div class="flex justify-between items-center pt-3 border-t border-border-subtle">
         <button type="button" id="reset-wip-btn" class="text-text-muted hover:text-text-primary text-[12px] font-jetbrains cursor-pointer">Reset Defaults</button>
         <div class="flex gap-2">
@@ -611,6 +649,10 @@ export function openTaskModal(projectId, existingTaskOrSprintId = null, onSaved 
   const task = isEdit ? existingTaskOrSprintId : null;
   const defaultSprintId = !isEdit ? (existingTaskOrSprintId || selectedSprintId) : (task?.sprintId || '');
 
+  const project = store.getProject(projectId) || store.getActiveProject();
+  const allTasks = store.getTasks(projectId);
+  const taskKey = task ? formatTaskKey(project?.key, task, allTasks) : 'TASK-NEW';
+  const defaultBranch = task ? generateBranchName(project?.key, taskKey, task.title) : 'feat/task-branch';
   const sprints = store.getSprints(projectId);
   const members = store.getMembers(projectId);
   const reqs = store.getRequirements(projectId);
@@ -680,6 +722,80 @@ export function openTaskModal(projectId, existingTaskOrSprintId = null, onSaved 
           class="w-full bg-surface-base text-text-primary text-body-md px-3 py-2 rounded-lg border border-border-subtle focus:border-primary outline-none">${task?.description ? escapeHtml(task.description) : ''}</textarea>
       </div>
 
+      
+      ${isEdit ? `
+        <!-- GitOps & Version Control Automation Section -->
+        <div class="p-3.5 rounded-xl bg-surface-base border border-border-subtle space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="material-symbols-outlined text-[18px] text-primary">commit</span>
+              <span class="font-geist text-body-sm font-bold text-text-primary">GitOps & Developer Automation</span>
+            </div>
+            ${task.pullRequest ? `
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-jetbrains font-bold ${
+                task.pullRequest.status === 'merged' ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30' :
+                'bg-status-passed-surface text-status-passed border border-status-passed/30'
+              }">
+                <span class="material-symbols-outlined text-[13px]">${task.pullRequest.status === 'merged' ? 'call_merge' : 'call_split'}</span>
+                PR #${task.pullRequest.id} (${task.pullRequest.status.toUpperCase()})
+              </span>
+            ` : ''}
+          </div>
+
+          <!-- Branch Name & Copy Command -->
+          <div>
+            <div class="flex items-center justify-between text-[11px] font-jetbrains text-text-muted mb-1">
+              <span>Git Branch</span>
+              <button type="button" id="copy-git-branch-btn" class="hover:text-primary transition-colors cursor-pointer flex items-center gap-1" data-branch="${task.gitBranch || defaultBranch}">
+                <span class="material-symbols-outlined text-[12px]">content_copy</span>
+                <span>Copy git checkout</span>
+              </button>
+            </div>
+            <input type="text" id="task-git-branch" value="${escapeHtml(task.gitBranch || defaultBranch)}"
+              class="w-full bg-surface-panel text-text-primary text-[12px] font-jetbrains px-3 py-1.5 rounded-lg border border-border-subtle focus:border-primary outline-none" />
+          </div>
+
+          <!-- Developer Quick Git Simulation Actions -->
+          <div class="pt-1 border-t border-border-subtle/50">
+            <div class="text-[10px] font-jetbrains uppercase text-text-muted tracking-wider mb-2">Simulate Developer Git Action</div>
+            <div class="flex flex-wrap gap-2">
+              <button type="button" id="gitops-commit-btn" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-primary text-[11px] font-jetbrains border border-border-subtle hover:border-primary transition-all cursor-pointer shadow-xs" title="Simulates 'git commit' and auto-promotes to In Progress">
+                <span class="material-symbols-outlined text-[14px] text-primary">add_task</span>
+                <span>Push Commit</span>
+              </button>
+
+              <button type="button" id="gitops-pr-btn" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface-panel hover:bg-surface-elevated text-secondary text-[11px] font-jetbrains border border-secondary/30 hover:border-secondary transition-all cursor-pointer shadow-xs" title="Simulates opening PR and auto-promotes to In Review">
+                <span class="material-symbols-outlined text-[14px]">call_split</span>
+                <span>Open PR</span>
+              </button>
+
+              <button type="button" id="gitops-merge-btn" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface-panel hover:bg-purple-500/15 text-purple-400 text-[11px] font-jetbrains border border-purple-500/30 hover:border-purple-500 transition-all cursor-pointer shadow-xs" title="Simulates merging PR into main and auto-promotes to Done">
+                <span class="material-symbols-outlined text-[14px]">call_merge</span>
+                <span>Merge & Complete</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Commit History if any -->
+          ${task.gitCommits && task.gitCommits.length > 0 ? `
+            <div class="pt-1">
+              <span class="text-[10px] font-jetbrains uppercase text-text-muted tracking-wider block mb-1.5">Linked Commits (${task.gitCommits.length})</span>
+              <div class="space-y-1.5 max-h-28 overflow-y-auto pr-1">
+                ${task.gitCommits.map(c => `
+                  <div class="p-1.5 rounded bg-surface-panel border border-border-subtle/50 text-[11px] font-jetbrains flex items-center justify-between">
+                    <div class="flex items-center gap-1.5 min-w-0">
+                      <span class="px-1.5 py-0.2 rounded bg-primary-container/20 text-primary font-bold shrink-0 text-[10px]">${escapeHtml(c.sha)}</span>
+                      <span class="text-text-primary truncate">${escapeHtml(c.message)}</span>
+                    </div>
+                    <span class="text-[10px] text-text-muted shrink-0 ml-2">${escapeHtml(c.author)}</span>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      ` : ''}
+
       <div class="flex justify-between items-center pt-3 border-t border-border-subtle">
         ${isEdit ? `
           <button type="button" id="delete-task-btn" class="flex items-center gap-1 text-status-defect hover:underline text-[12px] font-jetbrains cursor-pointer">
@@ -699,6 +815,57 @@ export function openTaskModal(projectId, existingTaskOrSprintId = null, onSaved 
   `, { title: isEdit ? `Edit Task: ${task.id}` : 'Create Implementation Task' });
 
   // Delete task handler
+  
+  // Copy Git Branch command
+  document.getElementById('copy-git-branch-btn')?.addEventListener('click', (e) => {
+    const branch = e.currentTarget.dataset.branch;
+    const cmd = `git checkout -b ${branch}`;
+    navigator.clipboard?.writeText(cmd);
+    showToast(`Copied: ${cmd}`, 'success');
+  });
+
+  // GitOps Commit Simulation
+  document.getElementById('gitops-commit-btn')?.addEventListener('click', () => {
+    if (!task) return;
+    const branch = document.getElementById('task-git-branch')?.value.trim() || defaultBranch;
+    const msg = prompt('Enter Git commit message:', `feat(${taskKey}): implement ${task.title.toLowerCase().slice(0, 30)}`);
+    if (!msg) return;
+    const res = recordGitCommit(task.id, { message: msg, branch });
+    if (res.error) {
+      showToast(res.error, 'error');
+    } else {
+      showToast(`Git commit [${res.commit.sha}] recorded! ${res.transitionMsg || ''}`, 'success');
+      closeModal();
+      if (onSaved) onSaved();
+    }
+  });
+
+  // GitOps Open PR Simulation
+  document.getElementById('gitops-pr-btn')?.addEventListener('click', () => {
+    if (!task) return;
+    const res = updatePullRequest(task.id, 'open');
+    if (res.error) {
+      showToast(res.error, 'error');
+    } else {
+      showToast('Pull request opened! Task promoted to In Review.', 'success');
+      closeModal();
+      if (onSaved) onSaved();
+    }
+  });
+
+  // GitOps Merge PR Simulation
+  document.getElementById('gitops-merge-btn')?.addEventListener('click', () => {
+    if (!task) return;
+    const res = updatePullRequest(task.id, 'merge');
+    if (res.error) {
+      showToast(res.error, 'error');
+    } else {
+      showToast('Pull request merged! Task completed and moved to Done.', 'success');
+      closeModal();
+      if (onSaved) onSaved();
+    }
+  });
+
   document.getElementById('delete-task-btn')?.addEventListener('click', () => {
     if (!task) return;
     showConfirm(`Delete task "${task.title}" permanently?`, () => {
@@ -732,6 +899,7 @@ export function openTaskModal(projectId, existingTaskOrSprintId = null, onSaved 
       estimate,
       dueDate,
       requirementIds: reqId ? [reqId] : [],
+      gitBranch: document.getElementById('task-git-branch')?.value.trim() || undefined,
       description
     };
 
@@ -815,3 +983,235 @@ function openSprintModal(projectId, onSaved) {
     if (onSaved) onSaved();
   });
 }
+
+// ===== BURNDOWN & VELOCITY ANALYTICS MODAL =====
+export function openBurndownModal(project, currentSprint, filteredTasks, allTasks) {
+  const sprintTasks = currentSprint
+    ? (allTasks || []).filter(t => t.sprintId === currentSprint.id)
+    : (filteredTasks || []);
+
+  const sprintName = currentSprint ? currentSprint.name : 'All Sprint Tasks';
+  const sprintGoal = currentSprint?.goal || 'Deliver committed sprint backlog story points with verified test coverage.';
+
+  const totalPts = sprintTasks.reduce((acc, t) => acc + (t.estimate || 3), 0);
+  const donePts = sprintTasks.filter(t => t.status === 'Done').reduce((acc, t) => acc + (t.estimate || 3), 0);
+  const inReviewPts = sprintTasks.filter(t => t.status === 'In Review').reduce((acc, t) => acc + (t.estimate || 3), 0);
+  const inProgressPts = sprintTasks.filter(t => t.status === 'In Progress').reduce((acc, t) => acc + (t.estimate || 3), 0);
+  const remainingPts = Math.max(0, totalPts - donePts);
+  const velocityPct = totalPts > 0 ? Math.round((donePts / totalPts) * 100) : 0;
+
+  // Timeline computation
+  const startDateStr = currentSprint?.startDate || new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+  const endDateStr = currentSprint?.endDate || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
+  const startMs = new Date(startDateStr).getTime();
+  const endMs = new Date(endDateStr).getTime();
+  const nowMs = Date.now();
+
+  const totalDays = Math.max(1, Math.round((endMs - startMs) / 86400000));
+  const elapsedDays = Math.min(totalDays, Math.max(0, Math.round((nowMs - startMs) / 86400000)));
+  const remainingDays = Math.max(0, totalDays - elapsedDays);
+
+  const idealBurnPerDay = totalDays > 0 ? (totalPts / totalDays).toFixed(1) : '0.0';
+  const actualBurnRate = elapsedDays > 0 ? (donePts / elapsedDays).toFixed(1) : (donePts).toFixed(1);
+  const neededBurnRate = remainingDays > 0 ? (remainingPts / remainingDays).toFixed(1) : remainingPts;
+
+  // Health assessment
+  let healthPill = '';
+  let healthDesc = '';
+  if (remainingPts === 0) {
+    healthPill = `<span class="px-2.5 py-0.5 rounded-full bg-status-passed-surface text-status-passed text-[11px] font-jetbrains font-bold border border-status-passed/30">COMPLETED</span>`;
+    healthDesc = `All ${totalPts} committed story points burned down. Sprint objectives met!`;
+  } else if (parseFloat(actualBurnRate) >= parseFloat(idealBurnPerDay) * 0.9) {
+    healthPill = `<span class="px-2.5 py-0.5 rounded-full bg-status-passed-surface text-status-passed text-[11px] font-jetbrains font-bold border border-status-passed/30">ON TRACK</span>`;
+    healthDesc = `Velocity is pacing at ${actualBurnRate} pts/day, meeting the ideal burn trajectory.`;
+  } else if (remainingDays === 0) {
+    healthPill = `<span class="px-2.5 py-0.5 rounded-full bg-status-defect-surface text-status-defect text-[11px] font-jetbrains font-bold border border-status-defect/30">OVERDUE</span>`;
+    healthDesc = `${remainingPts} pts remaining past the sprint end date. Consider rolling over.`;
+  } else {
+    healthPill = `<span class="px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 text-[11px] font-jetbrains font-bold border border-amber-500/30">AT RISK</span>`;
+    healthDesc = `Burn rate (${actualBurnRate} pts/day) is behind target (${neededBurnRate} pts/day needed to finish).`;
+  }
+
+  // Generate SVG Burndown Chart
+  const svgWidth = 620;
+  const svgHeight = 240;
+  const padL = 45;
+  const padR = 25;
+  const padT = 25;
+  const padB = 35;
+  const chartW = svgWidth - padL - padR;
+  const chartH = svgHeight - padT - padB;
+
+  const maxY = Math.max(10, Math.ceil((totalPts || 10) / 5) * 5);
+  const getY = (val) => padT + chartH - (Math.max(0, val) / maxY) * chartH;
+  const numSteps = Math.min(14, totalDays);
+  const getX = (dayIdx) => padL + (dayIdx / numSteps) * chartW;
+
+  // Ideal line coordinates
+  const idealX1 = getX(0);
+  const idealY1 = getY(totalPts);
+  const idealX2 = getX(numSteps);
+  const idealY2 = getY(0);
+
+  // Generate Actual Data Points trajectory
+  const actualPoints = [];
+  const currentStep = Math.min(numSteps, Math.round((elapsedDays / totalDays) * numSteps));
+  for (let s = 0; s <= currentStep; s++) {
+    const fraction = currentStep > 0 ? (s / currentStep) : 0;
+    const val = totalPts - Math.round(donePts * fraction);
+    actualPoints.push({
+      step: s,
+      x: getX(s),
+      y: getY(val),
+      points: val,
+      dayLabel: `Day ${Math.round((s / numSteps) * totalDays)}`
+    });
+  }
+
+  const actualPathD = actualPoints.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+
+  // Projected line if sprint still running
+  let projectedPathHtml = '';
+  if (currentStep < numSteps && actualPoints.length > 0) {
+    const lastP = actualPoints[actualPoints.length - 1];
+    const projY = getY(Math.max(0, remainingPts - (parseFloat(actualBurnRate) * remainingDays)));
+    projectedPathHtml = `
+      <line x1="${lastP.x.toFixed(1)}" y1="${lastP.y.toFixed(1)}" x2="${idealX2.toFixed(1)}" y2="${projY.toFixed(1)}"
+        stroke="#38bdf8" stroke-width="2" stroke-dasharray="4,4" stroke-opacity="0.6" />
+    `;
+  }
+
+  // Y Grid lines
+  const yTicks = [0, Math.round(maxY * 0.25), Math.round(maxY * 0.5), Math.round(maxY * 0.75), maxY];
+  const gridHtml = yTicks.map(val => {
+    const yPos = getY(val);
+    return `
+      <line x1="${padL}" y1="${yPos.toFixed(1)}" x2="${(padL + chartW).toFixed(1)}" y2="${yPos.toFixed(1)}" stroke="#334155" stroke-width="1" stroke-dasharray="3,3" opacity="0.4" />
+      <text x="${padL - 8}" y="${(yPos + 4).toFixed(1)}" fill="#94a3b8" font-size="10" font-family="monospace" text-anchor="end">${val}</text>
+    `;
+  }).join('');
+
+  // X axis day labels
+  const xLabelsHtml = [0, Math.round(numSteps / 2), numSteps].map(s => {
+    const dayNum = Math.round((s / numSteps) * totalDays);
+    const xPos = getX(s);
+    return `
+      <text x="${xPos.toFixed(1)}" y="${svgHeight - 10}" fill="#94a3b8" font-size="10" font-family="monospace" text-anchor="middle">Day ${dayNum}</text>
+    `;
+  }).join('');
+
+  // SVG Data circles
+  const circlesHtml = actualPoints.map(p => `
+    <g class="cursor-pointer group">
+      <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4" fill="#38bdf8" stroke="#0f172a" stroke-width="2" class="hover:r-6 transition-all" />
+      <title>${p.dayLabel}: ${p.points} pts remaining</title>
+    </g>
+  `).join('');
+
+  showModal(`
+    <div class="space-y-5">
+      <!-- Sprint Banner & Health -->
+      <div class="p-4 rounded-xl bg-surface-base border border-border-subtle flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <div class="flex items-center gap-2 mb-1">
+            <span class="font-jetbrains text-[10px] font-bold px-2 py-0.5 rounded bg-primary-container/20 text-primary border border-primary/20">${project.key}</span>
+            <span class="font-geist text-body-md font-bold text-text-primary">${escapeHtml(sprintName)}</span>
+            ${healthPill}
+          </div>
+          <p class="text-[12px] text-text-muted font-jetbrains">${escapeHtml(sprintGoal)}</p>
+        </div>
+        <div class="text-right shrink-0">
+          <div class="text-[11px] font-jetbrains text-text-muted">Sprint Timeline</div>
+          <div class="text-body-sm font-jetbrains font-semibold text-text-primary">
+            Day ${elapsedDays} of ${totalDays} (${formatDate(startDateStr)} &mdash; ${formatDate(endDateStr)})
+          </div>
+        </div>
+      </div>
+
+      <!-- 4 Key Metrics Cards -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 font-jetbrains">
+        <div class="p-3 rounded-xl bg-surface-canvas border border-border-subtle">
+          <span class="text-[10px] uppercase text-text-muted block mb-1">Committed Scope</span>
+          <div class="text-headline-sm font-bold text-text-primary">${totalPts} <span class="text-[12px] text-text-muted font-normal">pts</span></div>
+          <span class="text-[10px] text-text-muted">${sprintTasks.length} tasks in backlog</span>
+        </div>
+
+        <div class="p-3 rounded-xl bg-surface-canvas border border-border-subtle">
+          <span class="text-[10px] uppercase text-status-passed block mb-1">Points Burned</span>
+          <div class="text-headline-sm font-bold text-status-passed">${donePts} <span class="text-[12px] text-text-muted font-normal">pts</span></div>
+          <span class="text-[10px] text-secondary font-semibold">${velocityPct}% completion</span>
+        </div>
+
+        <div class="p-3 rounded-xl bg-surface-canvas border border-border-subtle">
+          <span class="text-[10px] uppercase text-status-in-progress block mb-1">Remaining Scope</span>
+          <div class="text-headline-sm font-bold text-status-in-progress">${remainingPts} <span class="text-[12px] text-text-muted font-normal">pts</span></div>
+          <span class="text-[10px] text-text-muted">${inProgressPts + inReviewPts} pts in-flight</span>
+        </div>
+
+        <div class="p-3 rounded-xl bg-surface-canvas border border-border-subtle">
+          <span class="text-[10px] uppercase text-text-muted block mb-1">Burn Velocity</span>
+          <div class="text-headline-sm font-bold text-text-primary">${actualBurnRate} <span class="text-[12px] text-text-muted font-normal">pts/day</span></div>
+          <span class="text-[10px] text-text-muted">Target: ${idealBurnPerDay} pts/day</span>
+        </div>
+      </div>
+
+      <!-- SVG Burndown Chart Container -->
+      <div class="p-4 rounded-xl bg-surface-canvas border border-border-subtle">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-primary text-[18px]">analytics</span>
+            <span class="font-geist text-body-md font-bold text-text-primary">Sprint Burndown Trajectory</span>
+          </div>
+          <!-- Legend -->
+          <div class="flex items-center gap-4 text-[11px] font-jetbrains text-text-muted">
+            <div class="flex items-center gap-1.5">
+              <span class="w-4 h-0.5 border-t-2 border-dashed border-slate-400"></span>
+              <span>Ideal Burn</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="w-3 h-3 rounded-full bg-sky-400"></span>
+              <span class="text-sky-400 font-semibold">Actual Remaining</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="w-full overflow-x-auto">
+          <svg viewBox="0 0 ${svgWidth} ${svgHeight}" class="w-full max-w-[620px] mx-auto h-auto select-none overflow-visible">
+            <!-- Gridlines & Y labels -->
+            ${gridHtml}
+
+            <!-- X Labels -->
+            ${xLabelsHtml}
+
+            <!-- Ideal Guideline -->
+            <line x1="${idealX1.toFixed(1)}" y1="${idealY1.toFixed(1)}" x2="${idealX2.toFixed(1)}" y2="${idealY2.toFixed(1)}"
+              stroke="#64748b" stroke-width="2" stroke-dasharray="6,6" opacity="0.8" />
+
+            <!-- Projected Line -->
+            ${projectedPathHtml}
+
+            <!-- Actual Burndown Path -->
+            ${actualPoints.length > 1 ? `
+              <path d="${actualPathD}" fill="none" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+            ` : ''}
+
+            <!-- Data Circles -->
+            ${circlesHtml}
+          </svg>
+        </div>
+
+        <div class="mt-3 pt-3 border-t border-border-subtle flex items-center justify-between text-[11px] font-jetbrains text-text-muted">
+          <span>${healthDesc}</span>
+          <span>Target End: ${formatDate(endDateStr)}</span>
+        </div>
+      </div>
+
+      <div class="flex justify-end pt-2">
+        <button type="button" onclick="window.__closeModal()" class="px-5 py-2 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-primary font-medium text-body-md transition-all cursor-pointer">
+          Done
+        </button>
+      </div>
+    </div>
+  `, { title: 'Sprint Burndown & Velocity Analytics' });
+}
+
