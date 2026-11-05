@@ -119,6 +119,20 @@ export async function respondToInvitation(idOrToken, action) {
   return action === 'accept' ? store.acceptInvitation(inv.id) : store.declineInvitation(inv.id);
 }
 
+export async function resendProjectInvitation(invitationId) {
+  const res = store.resendInvitation(invitationId);
+  if (res.error) return res;
+  try {
+    const backend = await getBackend();
+    if (backend && backend.updateInvitationStatus) {
+      await backend.updateInvitationStatus(invitationId, 'Pending');
+    }
+  } catch (err) {
+    console.warn('[Directory] Resend not propagated:', err);
+  }
+  return res;
+}
+
 export async function revokeProjectInvitation(invitationId) {
   const res = store.revokeInvitation(invitationId);
   if (res.error) return res;

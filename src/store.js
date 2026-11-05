@@ -266,6 +266,7 @@ class Store {
 
   // ===== AUTH =====
   get currentUser() { return this._load().currentUser; }
+  getCurrentUser() { return this._load().currentUser; }
 
   login(email, password) {
     const data = this._load();
@@ -1225,6 +1226,24 @@ class Store {
     return { data: inv };
   }
 
+  resendInvitation(invitationId) {
+    const data = this._load();
+    if (!data.currentUser) return { error: 'Authentication required.' };
+
+    const inv = (data.invitations || []).find(i => i.id === invitationId);
+    if (!inv) return { error: 'Invitation not found.' };
+
+    const myRole = this.getUserRole(inv.projectId);
+    if (myRole !== 'Owner') {
+      return { error: 'Forbidden: Only project owners can resend invitations.' };
+    }
+
+    inv.expiresAt = new Date(Date.now() + 7 * 86400000).toISOString();
+    inv.status = 'Pending';
+    this._save();
+    return { data: inv };
+  }
+
 
   // ===== REQUIREMENTS =====
   getRequirements(projectId, filters = {}) {
@@ -1297,6 +1316,28 @@ class Store {
 
   archiveRequirement(id) {
     return this.updateRequirement(id, { status: 'Rejected' });
+  }
+
+  deleteRequirement(id) {
+    const data = this._load();
+    const idx = data.requirements.findIndex(r => r.id === id);
+    if (idx === -1) return { error: 'Requirement not found' };
+    const old = data.requirements[idx];
+    const denied = this._deny(old.projectId, 'requirement.write');
+    if (denied) return denied;
+
+    data.requirements.splice(idx, 1);
+    data.requirementHistory = data.requirementHistory.filter(h => h.requirementId !== id);
+    this.addAuditLog({
+      type: 'REQUIREMENT_DELETED',
+      title: 'Requirement Deleted: ' + old.title,
+      details: '[' + old.priority + '] ID: ' + old.id,
+      author: data.currentUser.name,
+      icon: 'delete',
+      color: 'text-status-defect'
+    });
+    this._save();
+    return { data: { id } };
   }
 
   getRequirementHistory(reqId) {
@@ -1398,6 +1439,27 @@ class Store {
     return { data: data.tasks[idx] };
   }
 
+  deleteTask(id) {
+    const data = this._load();
+    const idx = data.tasks.findIndex(t => t.id === id);
+    if (idx === -1) return { error: 'Task not found' };
+    const task = data.tasks[idx];
+    const denied = this._deny(task.projectId, 'task.write');
+    if (denied) return denied;
+
+    data.tasks.splice(idx, 1);
+    this.addAuditLog({
+      type: 'TASK_DELETED',
+      title: 'Task Deleted: ' + task.title,
+      details: 'ID: ' + task.id,
+      author: data.currentUser.name,
+      icon: 'delete',
+      color: 'text-status-defect'
+    });
+    this._save();
+    return { data: { id } };
+  }
+
   // ===== TEST CASES =====
   getTestCases(projectId) { return this._load().testCases.filter(tc => tc.projectId === projectId); }
   getTestCase(id) { return this._load().testCases.find(tc => tc.id === id); }
@@ -1428,6 +1490,28 @@ class Store {
     data.testCases[idx] = { ...data.testCases[idx], ...safe };
     this._save();
     return { data: data.testCases[idx] };
+  }
+
+  deleteTestCase(id) {
+    const data = this._load();
+    const idx = data.testCases.findIndex(tc => tc.id === id);
+    if (idx === -1) return { error: 'Test case not found' };
+    const tc = data.testCases[idx];
+    const denied = this._deny(tc.projectId, 'testcase.write');
+    if (denied) return denied;
+
+    data.testCases.splice(idx, 1);
+    data.testRuns = data.testRuns.filter(r => r.testCaseId !== id);
+    this.addAuditLog({
+      type: 'TESTCASE_DELETED',
+      title: 'Test Case Deleted: ' + tc.title,
+      details: 'ID: ' + tc.id,
+      author: data.currentUser.name,
+      icon: 'delete',
+      color: 'text-status-defect'
+    });
+    this._save();
+    return { data: { id } };
   }
 
   // ===== TEST RUNS (append-only) =====
@@ -1473,7 +1557,8 @@ class Store {
     if (!bugData.title?.trim()) return { error: 'Bug title is required.' };
     if (!isValidSeverity(bugData.severity)) return { error: `Invalid defect severity: ${bugData.severity}` };
     const invalid = this._invalidLinks(projectId, 'requirements', [bugData.relatedRequirementId], 'Requirement')
-      || this._invalidLinks(projectId, 'testRuns', [bugData.relatedTestRunId], 'Test run');
+      || this._invalidLinks(projectId, 'testRuns', [bugData.relatedTestRunId], 'Test run')
+      || this._invalidLinks(projectId, 'tasks', [bugData.relatedTaskId], 'Task');
     if (invalid) return invalid;
     if (bugData.relatedTestRunId) {
       const run = data.testRuns.find(tr => tr.id === bugData.relatedTestRunId);
@@ -1511,6 +1596,27 @@ class Store {
     }
     this._save();
     return { data: data.bugs[idx] };
+  }
+
+  deleteBug(id) {
+    const data = this._load();
+    const idx = data.bugs.findIndex(b => b.id === id);
+    if (idx === -1) return { error: 'Bug not found' };
+    const bug = data.bugs[idx];
+    const denied = this._deny(bug.projectId, 'bug.create');
+    if (denied) return denied;
+
+    data.bugs.splice(idx, 1);
+    this.addAuditLog({
+      type: 'BUG_DELETED',
+      title: 'Defect Deleted: ' + bug.title,
+      details: 'ID: ' + bug.id,
+      author: data.currentUser.name,
+      icon: 'delete',
+      color: 'text-status-defect'
+    });
+    this._save();
+    return { data: { id } };
   }
 
   // ===== RELEASES =====

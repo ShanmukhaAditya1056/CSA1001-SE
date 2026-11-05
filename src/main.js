@@ -4,13 +4,13 @@ import { avatar, showToast, showModal, closeModal, formatDate, showConfirm, esca
 
 import { renderSignIn, renderRegister, renderForgotPassword } from './pages/auth.js';
 import { subscribeFirebaseAuthState, firebaseLogout, waitForAuthReady } from './firebase.js';
-import { renderDashboard } from './pages/dashboard.js';
+import { renderDashboard, openNewRequirementModal, openNewDefectModal, openNewTestRunModal } from './pages/dashboard.js';
 import { renderProjects, openCreateProjectModal } from './pages/projects.js';
 import { renderRequirements } from './pages/requirements.js';
-import { renderSprints } from './pages/sprints.js';
+import { renderSprints, openTaskModal } from './pages/sprints.js';
 import { renderTests } from './pages/tests.js';
 import { renderBugs } from './pages/bugs.js';
-import { renderReleases } from './pages/releases.js';
+import { renderReleases, openReleaseModal } from './pages/releases.js';
 import { renderTeam } from './pages/team.js';
 import { renderSettings } from './pages/settings.js';
 import { renderCicd } from './pages/cicd.js';
@@ -74,7 +74,7 @@ function renderShell(contentRenderer) {
 
   app.innerHTML = `
     <!-- Left Navigation Sidebar -->
-    <aside class="fixed left-0 top-0 h-full w-64 bg-surface-canvas border-r border-border-subtle z-50 flex flex-col justify-between shadow-2xl">
+    <aside id="app-sidebar" class="fixed left-0 top-0 h-full w-64 bg-surface-canvas border-r border-border-subtle z-50 flex flex-col justify-between shadow-2xl transition-transform duration-300">
       <div class="flex flex-col flex-1 min-h-0">
         <!-- Brand & Workspace Header -->
         <div class="h-14 px-5 flex items-center justify-between border-b border-border-subtle bg-surface-base/40">
@@ -193,8 +193,8 @@ function renderShell(contentRenderer) {
     </aside>
 
     <!-- Top Navigation Header -->
-    <div class="pl-64 flex flex-col min-h-screen">
-      <header class="fixed top-0 left-64 right-0 h-14 bg-surface-canvas/90 backdrop-blur-xl border-b border-border-subtle z-40 shadow-sm flex items-center justify-between px-6">
+    <div id="content-shell" class="pl-64 flex flex-col min-h-screen transition-all duration-300">
+      <header id="top-header" class="fixed top-0 left-64 right-0 h-14 bg-surface-canvas/90 backdrop-blur-xl border-b border-border-subtle z-50 shadow-sm flex items-center justify-between px-6 transition-all duration-300">
         <!-- Left: Project Indicator -->
         <div class="flex items-center gap-4">
           <div class="flex items-center gap-2">
@@ -209,6 +209,62 @@ function renderShell(contentRenderer) {
 
         <!-- Right: Search & User Profile Menu -->
         <div class="flex items-center gap-3">
+          <!-- Unified Create New... Top Navigation Dropdown -->
+          <div class="relative" id="global-create-dropdown-wrapper">
+            <button id="global-create-btn" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-on-primary font-inter text-label-md font-semibold hover:brightness-110 active:scale-95 transition-all shadow-md shadow-primary/25 cursor-pointer">
+              <span class="material-symbols-outlined text-[18px]">add_circle</span>
+              <span class="hidden sm:inline">Create...</span>
+              <span class="material-symbols-outlined text-[16px]">expand_more</span>
+            </button>
+            <div id="global-create-menu" class="absolute right-0 top-full mt-1.5 w-60 bg-surface-canvas border border-border-strong rounded-xl p-1.5 shadow-2xl hidden z-[100] animate-scale-in">
+              <div class="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-text-muted font-jetbrains">Create New Artifact</div>
+              <button id="global-act-req" class="w-full flex items-center gap-2.5 px-2.5 py-2 text-left rounded-lg hover:bg-surface-panel text-text-primary text-body-sm transition-colors cursor-pointer">
+                <span class="material-symbols-outlined text-[18px] text-primary">rule</span>
+                <div>
+                  <div class="font-medium leading-tight">Requirement</div>
+                  <div class="text-[11px] text-text-muted">MoSCoW prioritized spec</div>
+                </div>
+              </button>
+              <button id="global-act-task" class="w-full flex items-center gap-2.5 px-2.5 py-2 text-left rounded-lg hover:bg-surface-panel text-text-primary text-body-sm transition-colors cursor-pointer">
+                <span class="material-symbols-outlined text-[18px] text-secondary">assignment</span>
+                <div>
+                  <div class="font-medium leading-tight">Sprint Task</div>
+                  <div class="text-[11px] text-text-muted">Kanban task item</div>
+                </div>
+              </button>
+              <button id="global-act-defect" class="w-full flex items-center gap-2.5 px-2.5 py-2 text-left rounded-lg hover:bg-surface-panel text-text-primary text-body-sm transition-colors cursor-pointer">
+                <span class="material-symbols-outlined text-[18px] text-status-defect">pest_control</span>
+                <div>
+                  <div class="font-medium leading-tight">Defect / Bug</div>
+                  <div class="text-[11px] text-text-muted">Log & triage software issue</div>
+                </div>
+              </button>
+              <button id="global-act-test" class="w-full flex items-center gap-2.5 px-2.5 py-2 text-left rounded-lg hover:bg-surface-panel text-text-primary text-body-sm transition-colors cursor-pointer">
+                <span class="material-symbols-outlined text-[18px] text-status-passed">play_circle</span>
+                <div>
+                  <div class="font-medium leading-tight">QA Test Run</div>
+                  <div class="text-[11px] text-text-muted">Record assertion run</div>
+                </div>
+              </button>
+              <button id="global-act-release" class="w-full flex items-center gap-2.5 px-2.5 py-2 text-left rounded-lg hover:bg-surface-panel text-text-primary text-body-sm transition-colors cursor-pointer">
+                <span class="material-symbols-outlined text-[18px] text-status-release">rocket_launch</span>
+                <div>
+                  <div class="font-medium leading-tight">Release Milestone</div>
+                  <div class="text-[11px] text-text-muted">Package SemVer release cut</div>
+                </div>
+              </button>
+              <div class="h-px bg-border-subtle my-1"></div>
+              <button id="global-act-ci" class="w-full flex items-center gap-2.5 px-2.5 py-1.5 text-left rounded-lg hover:bg-surface-panel text-text-primary text-body-sm transition-colors cursor-pointer">
+                <span class="material-symbols-outlined text-[18px] text-primary">terminal</span>
+                <span class="text-[12px] font-medium">Run CI Validation</span>
+              </button>
+              <button id="global-act-project" class="w-full flex items-center gap-2.5 px-2.5 py-1.5 text-left rounded-lg hover:bg-surface-panel text-text-primary text-body-sm transition-colors cursor-pointer">
+                <span class="material-symbols-outlined text-[18px] text-text-muted">add_box</span>
+                <span class="text-[12px] font-medium">New Project Workspace</span>
+              </button>
+            </div>
+          </div>
+
           <!-- Quick Search Button (Ctrl+K) -->
           <button id="quick-search-btn" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-muted hover:text-text-primary border border-border-subtle transition-all">
             <span class="material-symbols-outlined text-[16px]">search</span>
@@ -286,6 +342,31 @@ function renderShell(contentRenderer) {
 
       <!-- Main Page Content Slot -->
       <main id="main-content" class="w-full pt-14 flex-1 bg-surface-base"></main>
+
+      <!-- Global Floating Action Button (FAB) Speed-Dial -->
+      <div id="global-fab-container" class="fixed bottom-6 right-6 z-40 flex flex-col-reverse items-end gap-2.5">
+        <button id="global-fab-main-btn" class="w-13 h-13 rounded-full bg-primary text-on-primary shadow-xl shadow-primary/30 flex items-center justify-center hover:scale-105 active:scale-95 transition-all cursor-pointer group" title="Quick Actions">
+          <span id="global-fab-icon" class="material-symbols-outlined text-[26px] transition-transform duration-300">add</span>
+        </button>
+        <div id="global-fab-speed-dial" class="hidden flex flex-col items-end gap-2 animate-scale-in">
+          <button id="fab-act-req" class="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-surface-canvas border border-border-strong text-text-primary text-body-sm shadow-lg hover:border-primary transition-all cursor-pointer">
+            <span class="font-medium">Requirement</span>
+            <span class="w-7 h-7 rounded-full bg-primary/20 text-primary flex items-center justify-center material-symbols-outlined text-[15px]">rule</span>
+          </button>
+          <button id="fab-act-task" class="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-surface-canvas border border-border-strong text-text-primary text-body-sm shadow-lg hover:border-secondary transition-all cursor-pointer">
+            <span class="font-medium">Sprint Task</span>
+            <span class="w-7 h-7 rounded-full bg-secondary/20 text-secondary flex items-center justify-center material-symbols-outlined text-[15px]">assignment</span>
+          </button>
+          <button id="fab-act-defect" class="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-surface-canvas border border-border-strong text-text-primary text-body-sm shadow-lg hover:border-status-defect transition-all cursor-pointer">
+            <span class="font-medium">Log Defect</span>
+            <span class="w-7 h-7 rounded-full bg-status-defect-surface text-status-defect flex items-center justify-center material-symbols-outlined text-[15px]">pest_control</span>
+          </button>
+          <button id="fab-act-test" class="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-surface-canvas border border-border-strong text-text-primary text-body-sm shadow-lg hover:border-status-passed transition-all cursor-pointer">
+            <span class="font-medium">Test Run</span>
+            <span class="w-7 h-7 rounded-full bg-status-passed-surface text-status-passed flex items-center justify-center material-symbols-outlined text-[15px]">play_circle</span>
+          </button>
+        </div>
+      </div>
     </div>
   `;
 
@@ -337,6 +418,91 @@ function renderShell(contentRenderer) {
   });
 
 
+  // Global Action Menu (Top Dropdown & FAB Speed-dial)
+  const activeProjId = activeProject.id;
+  const createBtn = document.getElementById('global-create-btn');
+  const createMenu = document.getElementById('global-create-menu');
+  createBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    createMenu?.classList.toggle('hidden');
+  });
+
+  const fabBtn = document.getElementById('global-fab-main-btn');
+  const fabMenu = document.getElementById('global-fab-speed-dial');
+  const fabIcon = document.getElementById('global-fab-icon');
+  fabBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isClosed = fabMenu?.classList.contains('hidden');
+    if (isClosed) {
+      fabMenu?.classList.remove('hidden');
+      if (fabIcon) fabIcon.style.transform = 'rotate(45deg)';
+    } else {
+      fabMenu?.classList.add('hidden');
+      if (fabIcon) fabIcon.style.transform = 'rotate(0deg)';
+    }
+  });
+
+  document.addEventListener('click', () => {
+    createMenu?.classList.add('hidden');
+    fabMenu?.classList.add('hidden');
+    if (fabIcon) fabIcon.style.transform = 'rotate(0deg)';
+  });
+
+  const triggerNewReq = () => {
+    createMenu?.classList.add('hidden');
+    fabMenu?.classList.add('hidden');
+    if (activeProjId) openNewRequirementModal(activeProjId);
+    else showToast('Select or create a project first.', 'info');
+  };
+  const triggerNewTask = () => {
+    createMenu?.classList.add('hidden');
+    fabMenu?.classList.add('hidden');
+    if (activeProjId) openTaskModal(activeProjId, null, () => route());
+    else showToast('Select or create a project first.', 'info');
+  };
+  const triggerLogDefect = () => {
+    createMenu?.classList.add('hidden');
+    fabMenu?.classList.add('hidden');
+    if (activeProjId) openNewDefectModal(activeProjId);
+    else showToast('Select or create a project first.', 'info');
+  };
+  const triggerTestRun = () => {
+    createMenu?.classList.add('hidden');
+    fabMenu?.classList.add('hidden');
+    if (activeProjId) openNewTestRunModal(activeProjId);
+    else showToast('Select or create a project first.', 'info');
+  };
+  const triggerRelease = () => {
+    createMenu?.classList.add('hidden');
+    fabMenu?.classList.add('hidden');
+    if (activeProjId) openReleaseModal(activeProjId, () => route());
+    else showToast('Select or create a project first.', 'info');
+  };
+
+  document.getElementById('global-act-req')?.addEventListener('click', triggerNewReq);
+  document.getElementById('fab-act-req')?.addEventListener('click', triggerNewReq);
+
+  document.getElementById('global-act-task')?.addEventListener('click', triggerNewTask);
+  document.getElementById('fab-act-task')?.addEventListener('click', triggerNewTask);
+
+  document.getElementById('global-act-defect')?.addEventListener('click', triggerLogDefect);
+  document.getElementById('fab-act-defect')?.addEventListener('click', triggerLogDefect);
+
+  document.getElementById('global-act-test')?.addEventListener('click', triggerTestRun);
+  document.getElementById('fab-act-test')?.addEventListener('click', triggerTestRun);
+
+  document.getElementById('global-act-release')?.addEventListener('click', triggerRelease);
+
+  document.getElementById('global-act-ci')?.addEventListener('click', () => {
+    createMenu?.classList.add('hidden');
+    window.location.hash = '#/ci-cd';
+  });
+
+  document.getElementById('global-act-project')?.addEventListener('click', () => {
+    createMenu?.classList.add('hidden');
+    openCreateProjectModal(() => renderShell(contentRenderer));
+  });
+
   // Explicit sidebar navigation click handler
   document.querySelectorAll('.nav-item').forEach(item => {
     item.addEventListener('click', (e) => {
@@ -354,6 +520,7 @@ function renderShell(contentRenderer) {
   // Render the specific page into main slot
   const mainContent = document.getElementById('main-content');
   contentRenderer(mainContent);
+  applySidebarState();
 }
 
 function inboxBadgeHtml(count) {
@@ -655,6 +822,97 @@ export function openInvitationsInboxModal(onChanged) {
   });
 }
 
+
+let isSidebarCollapsed = typeof localStorage !== 'undefined' && localStorage.getItem('devtrack_sidebar_collapsed') === 'true';
+
+export function toggleSidebarCollapsed() {
+  isSidebarCollapsed = !isSidebarCollapsed;
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem('devtrack_sidebar_collapsed', String(isSidebarCollapsed));
+  }
+  applySidebarState();
+  showToast(isSidebarCollapsed ? 'Sidebar collapsed (press [ / ] to expand)' : 'Sidebar expanded', 'info');
+}
+
+export function applySidebarState() {
+  const sidebar = document.getElementById('app-sidebar');
+  const contentShell = document.getElementById('content-shell');
+  const topHeader = document.getElementById('top-header');
+
+  if (!sidebar || !contentShell || !topHeader) return;
+
+  if (isSidebarCollapsed) {
+    sidebar.classList.add('-translate-x-full');
+    contentShell.classList.remove('pl-64');
+    contentShell.classList.add('pl-0');
+    topHeader.classList.remove('left-64');
+    topHeader.classList.add('left-0');
+  } else {
+    sidebar.classList.remove('-translate-x-full');
+    contentShell.classList.remove('pl-0');
+    contentShell.classList.add('pl-64');
+    topHeader.classList.remove('left-0');
+    topHeader.classList.add('left-64');
+  }
+}
+
+/**
+ * Guided Onboarding Tour Spotlight & Target Element Highlighting
+ */
+export function applyTourHighlight(step) {
+  document.getElementById('tour-guide-banner')?.remove();
+  document.querySelectorAll('.tour-highlight-active').forEach(el => {
+    el.classList.remove('tour-highlight-active', 'ring-4', 'ring-primary', 'ring-offset-4', 'ring-offset-surface-canvas', 'animate-pulse');
+  });
+
+  let targetSelector = '';
+  let stepTitle = '';
+  if (step === '1') {
+    targetSelector = '#add-member-btn';
+    stepTitle = 'Step 1: Invite a colleague to establish your project roster';
+  } else if (step === '2') {
+    targetSelector = '#add-req-btn';
+    stepTitle = 'Step 2: Define your first MoSCoW requirement specification';
+  } else if (step === '3') {
+    targetSelector = '#add-task-btn';
+    stepTitle = 'Step 3: Create an agile task for the active sprint';
+  } else if (step === '4') {
+    targetSelector = '#add-test-btn';
+    stepTitle = 'Step 4: Author a QA test case to verify specifications';
+  } else if (step === '5') {
+    targetSelector = '#trigger-ci-btn';
+    stepTitle = 'Step 5: Trigger CI/CD validation to simulate staging build';
+  } else if (step === '6') {
+    targetSelector = '#add-release-btn, #export-pdf-btn';
+    stepTitle = 'Step 6: Inspect audit gate and cut release milestone';
+  }
+
+  const targetEl = document.querySelector(targetSelector);
+  if (targetEl) {
+    targetEl.classList.add('tour-highlight-active', 'ring-4', 'ring-primary', 'ring-offset-4', 'ring-offset-surface-canvas', 'animate-pulse');
+    targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    const banner = document.createElement('div');
+    banner.id = 'tour-guide-banner';
+    banner.className = 'fixed top-18 left-1/2 -translate-x-1/2 z-[100] px-4 py-2.5 rounded-xl bg-primary text-on-primary font-jetbrains text-[12px] font-bold shadow-2xl flex items-center gap-2.5 animate-bounce border border-primary-fixed';
+    banner.innerHTML = `
+      <span class="material-symbols-outlined text-[18px]">assistant_navigation</span>
+      <span>${stepTitle}</span>
+      <button id="dismiss-tour-btn" class="ml-2 hover:bg-black/20 p-1 rounded transition-colors cursor-pointer" title="Dismiss Guide">✕</button>
+    `;
+    document.body.appendChild(banner);
+
+    const dismiss = () => {
+      banner.remove();
+      targetEl.classList.remove('tour-highlight-active', 'ring-4', 'ring-primary', 'ring-offset-4', 'ring-offset-surface-canvas', 'animate-pulse');
+    };
+
+    banner.querySelector('#dismiss-tour-btn')?.addEventListener('click', dismiss);
+    targetEl.addEventListener('click', dismiss, { once: true });
+    setTimeout(dismiss, 12000);
+  }
+}
+
 // Global Ctrl+K shortcut
 
 window.addEventListener('keydown', (e) => {
@@ -753,6 +1011,9 @@ function route() {
       routeObj.render(app);
     } else {
       renderShell(routeObj.render);
+      if (isTour && tourStep) {
+        setTimeout(() => applyTourHighlight(tourStep), 150);
+      }
     }
   } else {
     window.location.hash = '#/dashboard';
