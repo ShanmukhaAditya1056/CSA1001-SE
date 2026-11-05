@@ -1415,10 +1415,10 @@ export function openFlowAnalyticsModal(projectId) {
       <!-- Bottleneck Alert (if active) -->
       ${metrics.bottleneckAlert ? `
         <div class="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-3">
-          <span class="material-symbols-outlined text-amber-400 text-[22px] shrink-0 mt-0.5">warning</span>
+          <span class="material-symbols-outlined text-amber-600 dark:text-amber-400 text-[22px] shrink-0 mt-0.5">warning</span>
           <div>
-            <div class="font-geist text-body-sm font-bold text-amber-300">Flow Constraint Detected in [${escapeHtml(metrics.bottleneckAlert.stage)}]</div>
-            <div class="text-body-xs text-amber-200/90 mt-0.5">${escapeHtml(metrics.bottleneckAlert.message)}</div>
+            <div class="font-geist text-body-sm font-bold text-amber-800 dark:text-amber-300">Flow Constraint Detected in [${escapeHtml(metrics.bottleneckAlert.stage)}]</div>
+            <div class="text-body-xs text-amber-700 dark:text-amber-200 mt-0.5">${escapeHtml(metrics.bottleneckAlert.message)}</div>
           </div>
         </div>
       ` : ''}
