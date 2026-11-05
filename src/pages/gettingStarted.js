@@ -64,7 +64,7 @@ export function renderGettingStarted(container) {
             statusIcon = 'check_circle';
             statusLabel = 'VERIFIED';
           } else if (!s.unlocked) {
-            cardBorder = 'border-border-subtle/60 bg-surface-canvas/40 opacity-70';
+            cardBorder = 'border-border-subtle/60 bg-surface-canvas/50';
             statusBadge = 'bg-surface-panel text-text-muted';
             statusIcon = 'lock';
             statusLabel = 'GATED (LOCKED)';
@@ -93,8 +93,8 @@ export function renderGettingStarted(container) {
                 <p class="text-body-sm text-text-muted mb-3">${s.description}</p>
 
                 ${s.prerequisiteText ? `
-                  <div class="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] font-jetbrains flex items-center gap-2 mb-3">
-                    <span class="material-symbols-outlined text-[15px] shrink-0">lock</span>
+                  <div class="p-2.5 rounded-lg bg-amber-500/15 dark:bg-amber-500/20 border border-amber-500/40 text-amber-800 dark:text-amber-300 text-[11px] font-jetbrains font-semibold flex items-center gap-2 mb-3">
+                    <span class="material-symbols-outlined text-[16px] text-amber-700 dark:text-amber-400 shrink-0">lock</span>
                     <span>${s.prerequisiteText}</span>
                   </div>
                 ` : ''}

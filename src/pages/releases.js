@@ -124,7 +124,7 @@ export function renderReleases(container) {
                             <span class="material-symbols-outlined text-[12px]">verified</span> 2/2 Sign-offs
                           </span>
                         ` : (signoffState.engSigned || signoffState.qaSigned ? `
-                          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/15 dark:bg-amber-500/25 text-amber-800 dark:text-amber-300 border border-amber-500/40">
                             <span class="material-symbols-outlined text-[12px]">pending</span> 1/2 Sign-offs
                           </span>
                         ` : `
@@ -388,7 +388,7 @@ function renderAuditGateBadge(row) {
 
   if (otherDefects.length > 0) {
     return `
-      <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[11px] font-bold tracking-wide">
+      <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/15 dark:bg-amber-500/25 text-amber-800 dark:text-amber-300 border border-amber-500/40 text-[11px] font-bold tracking-wide">
         <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
         DEFECTS OPEN (${otherDefects.length})
       </span>

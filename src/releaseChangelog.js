@@ -215,7 +215,7 @@ export function openDualSignoffModal(releaseId, onUpdated) {
           <p class="text-text-muted text-body-xs mt-0.5">Two-Person Integrity Gate: Requires independent Engineering & QA digital certification.</p>
         </div>
         <div class="shrink-0 text-right">
-          <div class="font-jetbrains text-label-sm ${status.isFullyCertified ? 'text-status-passed font-bold' : 'text-amber-400 font-semibold'}">
+          <div class="font-jetbrains text-label-sm ${status.isFullyCertified ? 'text-status-passed font-bold' : 'text-amber-700 dark:text-amber-400 font-semibold'}">
             ${status.isFullyCertified ? '✅ 2/2 SIGN-OFFS COMPLETE' : (status.engSigned || status.qaSigned ? '⚠️ 1/2 SIGN-OFFS RECORDED' : '⏳ 0/2 SIGN-OFFS')}
           </div>
           <div class="text-[11px] text-text-muted mt-0.5">Production Deployment Gate</div>
@@ -249,7 +249,7 @@ export function openDualSignoffModal(releaseId, onUpdated) {
             </span>
             <div>
               <div class="text-body-xs font-bold text-text-primary">QA Regression Pass Rate</div>
-              <div class="text-[11px] ${status.passRate >= 80 ? 'text-status-passed' : 'text-amber-400'}">
+              <div class="text-[11px] ${status.passRate >= 80 ? 'text-status-passed' : 'text-amber-700 dark:text-amber-400'}">
                 ${status.passRate}% passed across ${status.totalTestRuns} test execution(s)
               </div>
             </div>
