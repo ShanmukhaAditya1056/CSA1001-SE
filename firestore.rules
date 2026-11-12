@@ -37,9 +37,15 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Projects collection: Accessible to authenticated team members
+    function isProjectMember() {
+      return request.auth.uid in resource.data.get('memberIds', [])
+        || resource.data.get('createdBy', null) == request.auth.uid;
+    }
+
+    // Projects collection: readable only by the creator and members listed in memberIds.
+    // Queries must filter on memberIds / createdBy or they are rejected.
     match /projects/{projectId} {
-      allow read: if signedIn();
+      allow read: if signedIn() && isProjectMember();
       allow create: if signedIn();
       allow update: if signedIn();
       allow delete: if false;

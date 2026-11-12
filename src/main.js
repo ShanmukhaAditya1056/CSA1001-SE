@@ -539,18 +539,18 @@ store.subscribe(updateProjectSwitcherDropdown);
 
 let realtimeInvitesUnsub = null;
 let realtimeProjectsUnsub = null;
+let realtimeListenersKey = null;
 
+// route() calls this on every navigation, so it must be idempotent: keep the
+// existing listeners while the same user is signed in instead of tearing them
+// down and re-subscribing on each click.
 export function mountRealtimeListeners(user) {
-  if (realtimeInvitesUnsub) {
-    try { realtimeInvitesUnsub(); } catch {}
-    realtimeInvitesUnsub = null;
-  }
-  if (realtimeProjectsUnsub) {
-    try { realtimeProjectsUnsub(); } catch {}
-    realtimeProjectsUnsub = null;
-  }
+  const key = user?.email ? `${user.uid || user.id}|${user.email.toLowerCase().trim()}` : null;
+  if (key && key === realtimeListenersKey) return;
 
-  if (!user || !user.email) return;
+  unmountRealtimeListeners();
+  if (!key) return;
+  realtimeListenersKey = key;
 
   // Mount useRealtimeInvites listener:
   // query: where("invitedEmail", "==", currentUser.email.toLowerCase().trim()) && where("status", "==", "pending")
@@ -586,6 +586,7 @@ export function mountRealtimeListeners(user) {
 }
 
 export function unmountRealtimeListeners() {
+  realtimeListenersKey = null;
   if (realtimeInvitesUnsub) {
     try { realtimeInvitesUnsub(); } catch {}
     realtimeInvitesUnsub = null;

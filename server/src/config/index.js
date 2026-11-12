@@ -1,4 +1,10 @@
 // DevTrack Server Configuration
+// The dev fallback secret is public (it is in this file), so a production
+// server must never start with it: anyone could forge session tokens.
+if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET must be set in production.');
+}
+
 export const config = {
   env: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT || '4000', 10),

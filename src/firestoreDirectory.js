@@ -14,6 +14,7 @@ import {
   updateDoc,
   query,
   where,
+  or,
   onSnapshot,
   writeBatch,
   serverTimestamp,
@@ -174,25 +175,24 @@ export function useRealtimeInvites(currentUser, callbacks = {}) {
  */
 export function useRealtimeProjects(currentUser, onProjectsUpdate, onError) {
   if (!currentUser?.email) return () => {};
-  const cleanEmail = currentUser.email.toLowerCase().trim();
   const uid = currentUser.uid || currentUser.id;
   let unsub = () => {};
 
   try {
     const database = db();
-    const projectsRef = collection(database, 'projects');
+    // Filter on the server: security rules only allow queries that are
+    // constrained to the caller's own projects (rules are not filters).
+    const q = query(
+      collection(database, 'projects'),
+      or(
+        where('memberIds', 'array-contains', uid),
+        where('createdBy', '==', uid)
+      )
+    );
     unsub = onSnapshot(
-      projectsRef,
+      q,
       (snap) => {
-        const projects = [];
-        snap.forEach(d => {
-          const data = { id: d.id, ...d.data() };
-          const isMember = (data.createdBy === uid) ||
-            (data.members && (data.members[uid] || (Array.isArray(data.members) && data.members.some(m => m.uid === uid || m.email === cleanEmail))));
-          if (isMember) {
-            projects.push(data);
-          }
-        });
+        const projects = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         if (onProjectsUpdate) onProjectsUpdate(projects);
       },
       (err) => {
@@ -253,6 +253,7 @@ export const firestoreBackend = {
     const cleanEmail = (email || '').toLowerCase().trim();
 
     // 1. Try querying users collection by case-insensitive normalized email
+    let sdkError = null;
     try {
       const q = query(collection(db(), 'users'), where('email', '==', cleanEmail));
       const snap = await getDocs(q);
@@ -265,11 +266,20 @@ export const firestoreBackend = {
           photoURL: d.photoURL || null
         };
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[firestoreBackend] users lookup failed, trying userDirectory:', err);
+      sdkError = err;
+    }
 
     // 2. Fallback to userDirectory/{cleanEmail} via REST
     const d = await rest().get('userDirectory', cleanEmail);
-    return d ? { id: d.uid, name: d.displayName || cleanEmail.split('@')[0], email: d.email, photoURL: d.photoURL || null } : null;
+    if (d) return { id: d.uid, name: d.displayName || cleanEmail.split('@')[0], email: d.email, photoURL: d.photoURL || null };
+
+    // A miss only means "not registered" if the primary lookup actually ran.
+    // Otherwise surface the real failure (rules not deployed, network/proxy)
+    // instead of telling the inviter the account doesn't exist.
+    if (sdkError) throw sdkError;
+    return null;
   },
 
   // Query invitations before creating to ensure no duplicate pending invite exists
