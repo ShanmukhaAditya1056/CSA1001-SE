@@ -1133,7 +1133,12 @@ function route() {
     return;
   }
 
-  const routeObj = ROUTES[hash];
+  // Hash routes may carry a query (e.g. onboarding links "#/team?tour=true&step=1").
+  const [routePath, routeQuery = ''] = hash.split('?');
+  const routeParams = new URLSearchParams(routeQuery);
+  const isTour = routeParams.get('tour') === 'true';
+  const tourStep = routeParams.get('step');
+  const routeObj = ROUTES[routePath];
 
   // If unauthenticated and route is private, redirect to login
   if (!store.currentUser && (!routeObj || !routeObj.public)) {
