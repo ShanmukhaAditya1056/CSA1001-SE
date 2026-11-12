@@ -616,7 +616,7 @@ function openAddMemberModal(projectId, onSaved) {
   form?.addEventListener('submit', async (e) => {
     e.preventDefault();
     errorBox.classList.add('hidden');
-    const email = emailInput.value.trim();
+    const email = emailInput.value.toLowerCase().trim();
     const role = document.getElementById('mem-role').value;
 
     submitBtn.disabled = true;

@@ -510,6 +510,46 @@ class Store {
     return projects.find(p => p.id === id) || projects[0];
   }
 
+  syncRemoteProject(remoteProj) {
+    if (!remoteProj?.id) return;
+    const data = this._load();
+    let p = data.projects.find(x => x.id === remoteProj.id);
+    if (!p) {
+      p = {
+        id: remoteProj.id,
+        name: remoteProj.name || 'Workspace Project',
+        key: remoteProj.key || 'PROJ',
+        description: remoteProj.description || '',
+        createdBy: remoteProj.createdBy || (data.currentUser ? data.currentUser.id : ''),
+        createdAt: remoteProj.createdAt || now(),
+        updatedAt: now()
+      };
+      data.projects.push(p);
+    }
+    // Sync members if provided
+    if (remoteProj.members && typeof remoteProj.members === 'object') {
+      const memberList = Array.isArray(remoteProj.members) ? remoteProj.members : Object.values(remoteProj.members);
+      memberList.forEach(m => {
+        const uid = m.uid || m.userId;
+        const email = normalizeEmail(m.email || m.userEmail);
+        const exists = data.members.some(mem => mem.projectId === remoteProj.id && (mem.userId === uid || normalizeEmail(mem.userEmail) === email));
+        if (!exists) {
+          data.members.push({
+            id: 'mem-' + generateId().slice(0, 8),
+            projectId: remoteProj.id,
+            userId: uid,
+            userName: m.name || m.displayName || email.split('@')[0],
+            userEmail: email,
+            role: m.role || 'Developer',
+            addedVia: 'sync',
+            addedAt: now()
+          });
+        }
+      });
+    }
+    this._save();
+  }
+
   createProject({ name, key, description, startDate, endDate }) {
     const data = this._load();
     if (!data.currentUser) return { error: 'Not authenticated' };
@@ -920,13 +960,42 @@ class Store {
     let local = (data.invitations || []).find(i => i.id === remote.id);
     const existed = Boolean(local);
     if (!local && remote.token) local = this.getInvitationByToken(remote.token);
-    if (!local) return false;
-    const statusChanged = remote.status && remote.status !== 'Pending' && local.status !== remote.status;
+    
+    if (!local) {
+      local = {
+        id: remote.id,
+        projectId: remote.projectId,
+        projectName: remote.projectName || 'DevTrack Platform',
+        projectKey: remote.projectKey || 'DEV',
+        inviterId: remote.senderId || remote.inviterId || '',
+        inviterName: remote.invitedBy || remote.inviterName || 'Workspace Member',
+        inviterEmail: remote.inviterEmail || (remote.invitedBy && remote.invitedBy.includes('@') ? remote.invitedBy : ''),
+        inviteeId: remote.inviteeId || '',
+        inviteeName: remote.inviteeName || (remote.invitedEmail ? remote.invitedEmail.split('@')[0] : ''),
+        inviteeEmail: normalizeEmail(remote.invitedEmail || remote.inviteeEmail),
+        invitedEmail: normalizeEmail(remote.invitedEmail || remote.inviteeEmail),
+        invitedBy: remote.invitedBy || remote.inviterName || '',
+        senderId: remote.senderId || remote.inviterId || '',
+        role: remote.role || 'Developer',
+        status: remote.status || 'Pending',
+        token: remote.token || '',
+        createdAt: remote.createdAt || now(),
+        expiresAt: remote.expiresAt || new Date(Date.now() + 7 * 86400000).toISOString()
+      };
+      if (!data.invitations) data.invitations = [];
+      data.invitations.unshift(local);
+      this._save();
+      return true;
+    }
+
+    const remoteStatus = (remote.status || '').toLowerCase();
+    const localStatus = (local.status || '').toLowerCase();
+    const statusChanged = remoteStatus && remoteStatus !== 'pending' && localStatus !== remoteStatus;
     // The invitee responded (possibly on another of their devices, or this
     // device's own write echoing back): apply it fully so membership exists here too.
-    const isInvitee = normalizeEmail(data.currentUser?.email) === normalizeEmail(local.inviteeEmail);
-    if (statusChanged && isInvitee && local.status === 'Pending' && ['Accepted', 'Declined'].includes(remote.status)) {
-      const res = remote.status === 'Accepted' ? this.acceptInvitation(local.id) : this.declineInvitation(local.id);
+    const isInvitee = normalizeEmail(data.currentUser?.email) === normalizeEmail(local.invitedEmail || local.inviteeEmail);
+    if (statusChanged && isInvitee && localStatus === 'pending' && ['accepted', 'declined'].includes(remoteStatus)) {
+      const res = remoteStatus === 'accepted' ? this.acceptInvitation(local.id) : this.declineInvitation(local.id);
       if (!res.error) return true;
     }
     if (statusChanged) local.status = remote.status;
@@ -939,11 +1008,13 @@ class Store {
   applyInvitationResponse(remote) {
     const data = this._load();
     const local = (data.invitations || []).find(i => i.id === remote?.id);
-    if (!local || local.status === remote.status || remote.status === 'Pending') return null;
+    const remoteStatus = (remote?.status || '').toLowerCase();
+    const localStatus = (local?.status || '').toLowerCase();
+    if (!local || localStatus === remoteStatus || remoteStatus === 'pending') return null;
     local.status = remote.status;
-    if (remote.status === 'Accepted') {
+    if (remoteStatus === 'accepted') {
       local.acceptedAt = remote.respondedAt || now();
-      const email = normalizeEmail(remote.inviteeEmail);
+      const email = normalizeEmail(remote.invitedEmail || remote.inviteeEmail);
       const exists = data.members.some(m => m.projectId === remote.projectId &&
         (normalizeEmail(m.userEmail) === email || (remote.inviteeId && m.userId === remote.inviteeId)));
       if (!exists) {
@@ -980,13 +1051,16 @@ class Store {
     const data = this._load();
     const clean = normalizeEmail(email || data.currentUser?.email);
     if (!clean) return [];
-    return (data.invitations || []).filter(i => normalizeEmail(i.inviteeEmail) === clean);
+    return (data.invitations || []).filter(i => {
+      const target = normalizeEmail(i.invitedEmail || i.inviteeEmail);
+      return target === clean;
+    });
   }
 
   getPendingInvitationsCount(email) {
     const invs = this.getUserInvitations(email);
     const nowMs = Date.now();
-    return invs.filter(i => i.status === 'Pending' && new Date(i.expiresAt).getTime() > nowMs).length;
+    return invs.filter(i => (i.status || '').toLowerCase() === 'pending' && new Date(i.expiresAt).getTime() > nowMs).length;
   }
 
   getInvitationByToken(token) {
@@ -1127,12 +1201,13 @@ class Store {
       inv.status = 'Expired';
       this._save();
     }
-    if (inv.status === 'Expired') {
+    const status = (inv.status || '').toLowerCase();
+    if (status === 'expired') {
       return { error: 'This invitation has expired. Please ask the project owner for a new invitation.' };
     }
 
-    if (inv.status !== 'Pending') {
-      return { error: `This invitation has already been ${inv.status.toLowerCase()}.` };
+    if (status !== 'pending') {
+      return { error: `This invitation has already been ${status}.` };
     }
     return { data: inv };
   }

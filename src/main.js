@@ -20,7 +20,7 @@ import { renderManual } from './pages/manual.js';
 import { toggleTheme, themeToggleState } from './theme.js';
 import { openMemberProfile } from './pages/memberProfile.js';
 import { teamCollab } from './collab.js';
-import { startInvitationSync, stopInvitationSync, respondToInvitation, describeDirectoryError } from './directory.js';
+import { startInvitationSync, stopInvitationSync, respondToInvitation, describeDirectoryError, useRealtimeInvites, useRealtimeProjects } from './directory.js';
 
 
 const app = document.getElementById('app');
@@ -408,6 +408,7 @@ function renderShell(contentRenderer) {
 
   // Sign out handler
   document.getElementById('signout-btn')?.addEventListener('click', async () => {
+    unmountRealtimeListeners();
     try {
       await firebaseLogout();
     } catch (e) {
@@ -601,6 +602,77 @@ function refreshInboxBadge() {
 
 store.subscribe(refreshInboxBadge);
 
+export function updateProjectSwitcherDropdown() {
+  const projSelect = document.getElementById('sidebar-proj-select');
+  if (!projSelect) return;
+  const allProjects = store.getProjects();
+  const activeProject = store.getActiveProject();
+  projSelect.innerHTML = allProjects.map(p =>
+    `<option value="${escapeHtml(p.id)}" ${activeProject && p.id === activeProject.id ? 'selected' : ''}>${escapeHtml(p.name)} (${escapeHtml(p.key)})</option>`
+  ).join('');
+}
+
+store.subscribe(updateProjectSwitcherDropdown);
+
+let realtimeInvitesUnsub = null;
+let realtimeProjectsUnsub = null;
+
+export function mountRealtimeListeners(user) {
+  if (realtimeInvitesUnsub) {
+    try { realtimeInvitesUnsub(); } catch {}
+    realtimeInvitesUnsub = null;
+  }
+  if (realtimeProjectsUnsub) {
+    try { realtimeProjectsUnsub(); } catch {}
+    realtimeProjectsUnsub = null;
+  }
+
+  if (!user || !user.email) return;
+
+  // Mount useRealtimeInvites listener:
+  // query: where("invitedEmail", "==", currentUser.email.toLowerCase().trim()) && where("status", "==", "pending")
+  realtimeInvitesUnsub = useRealtimeInvites(user, {
+    onInvites: (invitations) => {
+      invitations.forEach(inv => {
+        store.syncRemoteInvitation(inv);
+      });
+      refreshInboxBadge();
+      const modal = document.getElementById('app-modal');
+      if (modal && !modal.classList.contains('hidden')) {
+        const modalTitle = modal.querySelector('.modal-title');
+        if (modalTitle && modalTitle.textContent.includes('Workspace Invitations Inbox')) {
+          openInvitationsInboxModal();
+        }
+      }
+    },
+    onError: (err) => {
+      console.error('[useRealtimeInvites] listener error:', err);
+    }
+  });
+
+  // Mount useRealtimeProjects listener:
+  // query on projects so newly joined project appears in dropdown immediately without reload
+  realtimeProjectsUnsub = useRealtimeProjects(user, (projects) => {
+    projects.forEach(p => {
+      store.syncRemoteProject?.(p);
+    });
+    updateProjectSwitcherDropdown();
+  }, (err) => {
+    console.error('[useRealtimeProjects] Projects listener error:', err);
+  });
+}
+
+export function unmountRealtimeListeners() {
+  if (realtimeInvitesUnsub) {
+    try { realtimeInvitesUnsub(); } catch {}
+    realtimeInvitesUnsub = null;
+  }
+  if (realtimeProjectsUnsub) {
+    try { realtimeProjectsUnsub(); } catch {}
+    realtimeProjectsUnsub = null;
+  }
+}
+
 // Real-Time Team Presence & Activity Stream Handlers
 function refreshPresencePill() {
   const container = document.getElementById('team-presence-avatars');
@@ -659,9 +731,11 @@ window.addEventListener('devtrack:team-action', () => {
 function syncInvitationsForCurrentUser() {
   const user = store.currentUser;
   if (!user) {
+    unmountRealtimeListeners();
     stopInvitationSync();
     return;
   }
+  mountRealtimeListeners(user);
   startInvitationSync(user, {
     onNewInvitations: (invitations) => {
       if (invitations.length > 2) {
@@ -897,14 +971,18 @@ export function openInvitationsInboxModal(onChanged) {
     btn.addEventListener('click', async () => {
       const invId = btn.dataset.id;
       btn.disabled = true;
+      btn.innerHTML = `<span class="material-symbols-outlined text-[16px] animate-spin">progress_activity</span><span>Joining...</span>`;
       const res = await respondToInvitation(invId, 'accept');
       btn.disabled = false;
       if (res.error) {
         showToast(res.error, 'error');
+        btn.innerHTML = `<span class="material-symbols-outlined text-[16px]">check</span><span>Accept</span>`;
       } else {
         sessionStorage.removeItem('pending_invite_token');
         closeModal();
         showToast(`Welcome! You have joined ${btn.dataset.name} as ${btn.dataset.role}.`, 'success');
+        updateProjectSwitcherDropdown();
+        refreshInboxBadge();
         window.location.hash = '#/dashboard';
         if (onChanged) onChanged();
       }
@@ -921,6 +999,7 @@ export function openInvitationsInboxModal(onChanged) {
         } else {
           sessionStorage.removeItem('pending_invite_token');
           showToast('Invitation declined.', 'info');
+          refreshInboxBadge();
           openInvitationsInboxModal(onChanged);
         }
       }, { title: 'Decline Invitation', destructive: true, confirmText: 'Decline' });

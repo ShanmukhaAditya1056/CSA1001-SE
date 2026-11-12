@@ -125,7 +125,7 @@ export function renderSignIn(container) {
     submitBtn.disabled = true;
     submitBtn.innerHTML = `<span class="material-symbols-outlined text-[18px] animate-spin">progress_activity</span><span>Verifying credentials...</span>`;
 
-    const email = document.getElementById('login-email').value.trim();
+    const email = document.getElementById('login-email').value.toLowerCase().trim();
     const password = document.getElementById('login-password').value;
 
     try {
@@ -218,7 +218,7 @@ export function renderRegister(container) {
     submitBtn.innerHTML = `<span class="material-symbols-outlined text-[18px] animate-spin">progress_activity</span><span>Creating account...</span>`;
 
     const name = document.getElementById('reg-name').value.trim();
-    const email = document.getElementById('reg-email').value.trim();
+    const email = document.getElementById('reg-email').value.toLowerCase().trim();
     const password = document.getElementById('reg-password').value;
 
     try {
@@ -291,7 +291,7 @@ export function renderForgotPassword(container) {
     submitBtn.disabled = true;
     submitBtn.innerHTML = `<span class="material-symbols-outlined text-[18px] animate-spin">progress_activity</span><span>Dispatching...</span>`;
 
-    const email = document.getElementById('reset-email').value.trim();
+    const email = document.getElementById('reset-email').value.toLowerCase().trim();
     try {
       await firebaseResetPassword(email);
       resultBox.className = 'p-3 rounded-lg bg-status-passed-surface border border-status-passed/30 text-status-passed text-body-sm flex items-start gap-2';

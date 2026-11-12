@@ -3,7 +3,7 @@
 // recipient's inbox on any device. Without Firebase (local dev, Node tests)
 // it falls back to this browser's store, which syncs across tabs.
 import { store } from './store.js';
-import { UNREGISTERED_USER_MESSAGE, PENDING_INVITATION_MESSAGE, INVITE_FAILED_MESSAGE } from './rules.js';
+import { UNREGISTERED_USER_MESSAGE, ALREADY_MEMBER_MESSAGE, PENDING_INVITATION_MESSAGE, INVITE_FAILED_MESSAGE } from './rules.js';
 
 const normalizeEmail = (email) => (email || '').trim().toLowerCase();
 
@@ -77,6 +77,12 @@ export async function sendProjectInvitation(projectId, email, role) {
   if (check.error) return check;
   const { cleanEmail } = check.data;
 
+  // Verify the user isn't already a member of the project
+  const members = store.getMembers(projectId);
+  if (members.some(m => normalizeEmail(m.userEmail) === cleanEmail)) {
+    return { error: ALREADY_MEMBER_MESSAGE };
+  }
+
   try {
     const backend = await getBackend();
     if (await backend.findPendingInvitation(projectId, cleanEmail, store.currentUser.id)) {
@@ -87,6 +93,12 @@ export async function sendProjectInvitation(projectId, email, role) {
 
     const res = store.createInvitation(projectId, cleanEmail, role, { invitee: lookup.user });
     if (res.error) return res;
+
+    // Ensure standard top-level fields: projectId, projectName, invitedEmail, invitedBy, senderId, role, status
+    res.data.invitedEmail = cleanEmail;
+    res.data.invitedBy = store.currentUser?.name || store.currentUser?.email || cleanEmail;
+    res.data.senderId = store.currentUser?.id || '';
+
     try {
       await backend.createInvitation(res.data);
     } catch (err) {
@@ -106,9 +118,16 @@ export async function respondToInvitation(idOrToken, action) {
 
   const target = action === 'accept' ? 'Accepted' : 'Declined';
 
-  // Update the shared record first; it is the authority other devices follow.
+  // Update the shared record first (executing atomic writeBatch on accept or updateDoc on decline)
   try {
-    await (await getBackend()).updateInvitationStatus(inv.id, target);
+    const backend = await getBackend();
+    if (action === 'accept' && backend.acceptInvitation) {
+      await backend.acceptInvitation(inv.id, store.currentUser, inv);
+    } else if (action === 'decline' && backend.declineInvitation) {
+      await backend.declineInvitation(inv.id);
+    } else if (backend.updateInvitationStatus) {
+      await backend.updateInvitationStatus(inv.id, target);
+    }
   } catch (err) {
     return { error: `Could not update the invitation. ${describeDirectoryError(err)}` };
   }
@@ -209,7 +228,7 @@ export function startInvitationSync(user, {
       const fresh = [];
       invitations.forEach(inv => {
         if (backend.remote) store.syncRemoteInvitation(inv);
-        const live = inv.status === 'Pending' && new Date(inv.expiresAt).getTime() > Date.now();
+        const live = ((inv.status || '').toLowerCase() === 'pending') && new Date(inv.expiresAt).getTime() > Date.now();
         if (live && !session.known.has(inv.id)) fresh.push(inv);
         session.known.add(inv.id);
       });
@@ -227,4 +246,63 @@ export function startInvitationSync(user, {
   };
 
   connect();
+}
+
+/**
+ * Top-Level Live Listener Hook (useRealtimeInvites)
+ * Mounted at the top-level authenticated layout/navbar so that the mail/notification badge
+ * and invite drawer update immediately in real time via Firestore onSnapshot.
+ */
+export function useRealtimeInvites(currentUser, callbacks = {}) {
+  const onInvites = typeof callbacks === 'function' ? callbacks : callbacks.onInvites;
+  const onError = (typeof callbacks === 'object' && callbacks.onError) || ((err) => {
+    console.error('[useRealtimeInvites] listener error:', err);
+  });
+
+  if (!currentUser?.email) return () => {};
+
+  let unsub = () => {};
+  let cancelled = false;
+
+  getBackend().then(backend => {
+    if (cancelled) return;
+    if (backend && backend.useRealtimeInvites) {
+      unsub = backend.useRealtimeInvites(currentUser, { onInvites, onError });
+    } else if (backend) {
+      unsub = backend.subscribeInbox(currentUser.email, (invs) => {
+        if (onInvites) onInvites(invs);
+      }, onError);
+    }
+  }).catch(err => {
+    if (!cancelled) onError(err);
+  });
+
+  return () => {
+    cancelled = true;
+    try { unsub(); } catch {}
+  };
+}
+
+/**
+ * Top-Level Real-Time Projects Listener (useRealtimeProjects)
+ * Keeps workspace/project switcher list updated immediately when a user accepts an invite.
+ */
+export function useRealtimeProjects(currentUser, onProjectsUpdate, onError) {
+  if (!currentUser?.email) return () => {};
+  let unsub = () => {};
+  let cancelled = false;
+
+  getBackend().then(backend => {
+    if (cancelled) return;
+    if (backend && backend.useRealtimeProjects) {
+      unsub = backend.useRealtimeProjects(currentUser, onProjectsUpdate, onError);
+    }
+  }).catch(err => {
+    if (!cancelled && onError) onError(err);
+  });
+
+  return () => {
+    cancelled = true;
+    try { unsub(); } catch {}
+  };
 }

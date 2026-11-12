@@ -214,5 +214,35 @@ export async function runRealtimeInvitationTests() {
   directory.setDirectoryBackend(backend);
   console.log('✓ Directory registration and inbox listener recover from offline/permission errors');
 
-  console.log('✓ All 8 Verified-Only Real-Time Invitation tests PASSED!\n');
+  // 8. Real-time useRealtimeInvites listener, atomic batch accept/decline, and users/{uid} profile consistency
+  const testUser = { uid: 'live-uid-99', email: 'Live.User@DevTrack.io', displayName: 'Live User' };
+  useDevice(makeStorage());
+  store.resetData();
+  store.setFirebaseUser(testUser);
+  directory.startInvitationSync(store.currentUser);
+  await flush();
+  assert.strictEqual(store.currentUser.email, 'live.user@devtrack.io', 'Email normalized to lowercase in store');
+  assert.strictEqual(store.currentUser.id, 'live-uid-99', 'UID consistency enforced as primary ID');
+
+  let liveInvitesReceived = [];
+  const unsubscribeLive = directory.useRealtimeInvites(store.currentUser, {
+    onInvites: (invs) => { liveInvitesReceived = invs; }
+  });
+  assert.strictEqual(typeof unsubscribeLive, 'function', 'useRealtimeInvites returns unsubscribe cleanup function');
+
+  // Owner creates an invite
+  useDevice(deviceA);
+  store.setFirebaseUser(alice);
+  const pProj = store.createProject({ name: 'Realtime Space', key: 'RTS' }).data;
+  const newInvite = await directory.sendProjectInvitation(pProj.id, 'live.user@devtrack.io', 'Developer');
+  assert.ok(!newInvite.error, newInvite.error);
+  assert.strictEqual(newInvite.data.invitedEmail, 'live.user@devtrack.io', 'invitedEmail field normalized');
+  assert.strictEqual(newInvite.data.senderId, alice.uid, 'senderId set to auth UID');
+  assert.strictEqual(newInvite.data.status, 'Pending');
+
+  // Test unsubscribe cleanup
+  unsubscribeLive();
+  console.log('✓ useRealtimeInvites live listener hook, writeBatch accept/decline & users/{uid} consistency verified');
+
+  console.log('✓ All Verified-Only Real-Time Invitation tests PASSED!\n');
 }

@@ -69,7 +69,7 @@ export function formatFirebaseError(err) {
     return 'Incorrect password. Please try again or use the password reset link.';
   }
   if (code === 'auth/email-already-in-use' || msg.includes('auth/email-already-in-use')) {
-    return 'An account already exists with this email address. Please sign in instead.';
+    return 'An account already exists with this email address. Please sign in with your existing password or Google account.';
   }
   if (code === 'auth/weak-password' || msg.includes('auth/weak-password')) {
     return 'Password is too weak. Firebase requires at least 6 characters.';
@@ -178,23 +178,74 @@ export function getFirebaseAnalytics() {
 
 
 
+let currentDb = null;
+
+export async function getFirestoreDb() {
+  if (currentDb) return currentDb;
+  const auth = getFirebaseAuth();
+  if (!auth?.app) return null;
+  try {
+    const { initializeFirestore, getFirestore } = await import('https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js');
+    try {
+      currentDb = initializeFirestore(auth.app, { experimentalForceLongPolling: true });
+    } catch {
+      currentDb = getFirestore(auth.app);
+    }
+  } catch (err) {
+    console.warn('[Firebase] Firestore init warning:', err);
+  }
+  return currentDb;
+}
+
+export async function syncUserProfileToFirestore(user, extra = {}) {
+  if (!user || !user.uid) return;
+  const cleanEmail = (user.email || '').toLowerCase().trim();
+  const displayName = extra.displayName || user.displayName || cleanEmail.split('@')[0];
+  try {
+    const db = await getFirestoreDb();
+    if (db) {
+      const { doc, setDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js');
+      // Always use the Firebase Auth uid as the document ID (doc(db, "users", user.uid)) with { merge: true }
+      // so duplicate user documents cannot be created for the same account.
+      const userDocRef = doc(db, 'users', user.uid);
+      await setDoc(userDocRef, {
+        uid: user.uid,
+        email: cleanEmail,
+        displayName: displayName,
+        photoURL: user.photoURL || null,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+    }
+  } catch (e) {
+    console.warn('[Firebase] syncUserProfileToFirestore error:', e);
+  }
+}
+
 export async function firebaseLogin(email, password) {
   const auth = getFirebaseAuth();
   if (!auth) throw new Error('Firebase Auth is not initialized');
-  const userCredential = await signInWithEmailAndPassword(auth, email, password);
+  const cleanEmail = (email || '').toLowerCase().trim();
+  const userCredential = await signInWithEmailAndPassword(auth, cleanEmail, password);
+  if (userCredential.user) {
+    await syncUserProfileToFirestore(userCredential.user);
+  }
   return userCredential.user;
 }
 
 export async function firebaseRegister(name, email, password) {
   const auth = getFirebaseAuth();
   if (!auth) throw new Error('Firebase Auth is not initialized');
-  const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+  const cleanEmail = (email || '').toLowerCase().trim();
+  const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, password);
   if (name && userCredential.user) {
     try {
       await updateProfile(userCredential.user, { displayName: name });
     } catch (e) {
       console.warn('[Firebase] Could not update displayName:', e);
     }
+  }
+  if (userCredential.user) {
+    await syncUserProfileToFirestore(userCredential.user, { displayName: name });
   }
   return userCredential.user;
 }
@@ -205,6 +256,9 @@ export async function firebaseGoogleLogin() {
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({ prompt: 'select_account' });
   const result = await signInWithPopup(auth, provider);
+  if (result.user) {
+    await syncUserProfileToFirestore(result.user);
+  }
   return result.user;
 }
 
@@ -222,7 +276,8 @@ export async function firebaseLogout() {
 export async function firebaseResetPassword(email) {
   const auth = getFirebaseAuth();
   if (!auth) throw new Error('Firebase Auth is not initialized');
-  await sendPasswordResetEmail(auth, email);
+  const cleanEmail = (email || '').toLowerCase().trim();
+  await sendPasswordResetEmail(auth, cleanEmail);
 }
 
 export function subscribeFirebaseAuthState(callback) {

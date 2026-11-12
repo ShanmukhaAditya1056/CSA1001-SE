@@ -1,13 +1,22 @@
-// Firestore implementation of the shared directory (see directory.js).
+// DevTrack Firestore Real-Time Shared Directory & Invitation Delivery
 // Collections, guarded by firestore.rules:
-//   userDirectory/{email}  — one record per registered account (get-only, no listing)
-//   invitations/{id}       — readable by inviter and invitee only
-//
-// One-off reads/writes use the REST API: some networks and security software
-// break the SDK's WebChannel while plain HTTPS works. Inbox updates use the
-// SDK's live listener when it connects, and REST polling when it does not.
+//   users/{uid}            — user profiles keyed by auth UID (merge: true)
+//   userDirectory/{email}  — one record per registered account (lookup fallback)
+//   invitations/{id}       — top-level invitations collection with live onSnapshot listener
+//   projects/{projectId}   — workspace project document updated atomically via writeBatch on accept
 import {
-  initializeFirestore, getFirestore, collection, query, where, onSnapshot
+  initializeFirestore,
+  getFirestore,
+  collection,
+  doc,
+  setDoc,
+  getDocs,
+  updateDoc,
+  query,
+  where,
+  onSnapshot,
+  writeBatch,
+  serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js';
 import { getFirebaseAuth, waitForAuthReady } from './firebase.js';
 import { createFirestoreRest } from './firestoreRest.js';
@@ -23,11 +32,11 @@ function auth() {
   return a;
 }
 
-function db() {
+export function db() {
   if (cachedDb) return cachedDb;
   try {
     // Campus/corporate proxies often break Firestore's streaming transport;
-    // plain long-polling gets through them more often.
+    // plain long-polling gets through them more reliably.
     cachedDb = initializeFirestore(auth().app, { experimentalForceLongPolling: true });
   } catch {
     cachedDb = getFirestore(auth().app);
@@ -62,7 +71,8 @@ function watchInvitations(field, value, onChange, onError) {
     timer = null;
     if (stopped || live) return;
     try {
-      onChange(await rest().where('invitations', { [field]: value }));
+      const results = await rest().where('invitations', { [field]: value });
+      onChange(results);
     } catch (err) {
       onError?.(err);
       return;
@@ -72,8 +82,9 @@ function watchInvitations(field, value, onChange, onError) {
 
   let unsubscribeLive = () => {};
   try {
+    const q = query(collection(db(), 'invitations'), where(field, '==', value));
     unsubscribeLive = onSnapshot(
-      query(collection(db(), 'invitations'), where(field, '==', value)),
+      q,
       { includeMetadataChanges: true },
       snap => {
         if (snap.metadata.fromCache) {
@@ -83,7 +94,7 @@ function watchInvitations(field, value, onChange, onError) {
         live = true;
         clearTimeout(timer);
         timer = null;
-        onChange(snap.docs.map(d => d.data()));
+        onChange(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       },
       () => { live = false; if (!timer && !stopped) poll(); }
     );
@@ -99,57 +110,321 @@ function watchInvitations(field, value, onChange, onError) {
   };
 }
 
-const INVITATION_FIELDS = [
-  'id', 'projectId', 'projectName', 'projectKey', 'inviterId', 'inviterName', 'inviterEmail',
-  'inviteeId', 'inviteeName', 'inviteeEmail', 'role', 'status', 'token', 'createdAt', 'expiresAt'
-];
+/**
+ * Top-Level Real-Time Invitations Live Listener (useRealtimeInvites)
+ * Mounted at the top-level authenticated layout/navbar.
+ * Query: where("invitedEmail", "==", currentUser.email.toLowerCase().trim()) && where("status", "==", "pending")
+ * Includes proper unsubscribe() cleanup on unmount or user logout.
+ */
+export function useRealtimeInvites(currentUser, callbacks = {}) {
+  const onInvites = typeof callbacks === 'function' ? callbacks : callbacks.onInvites;
+  const onError = (typeof callbacks === 'object' && callbacks.onError) || ((err) => {
+    console.error('[useRealtimeInvites] Firestore listener error:', err);
+  });
+
+  if (!currentUser?.email) {
+    return () => {};
+  }
+
+  const cleanEmail = currentUser.email.toLowerCase().trim();
+  let unsub = () => {};
+
+  try {
+    const database = db();
+    const invitesRef = collection(database, 'invitations');
+    // Query: where("invitedEmail", "==", currentUser.email.toLowerCase().trim()) and where("status", "==", "pending")
+    const q = query(
+      invitesRef,
+      where('invitedEmail', '==', cleanEmail),
+      where('status', '==', 'pending')
+    );
+
+    unsub = onSnapshot(
+      q,
+      { includeMetadataChanges: true },
+      (snap) => {
+        const invites = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        if (onInvites) onInvites(invites);
+      },
+      (err) => {
+        console.error('[useRealtimeInvites] Snapshot listener error:', err);
+        if (onError) onError(err);
+      }
+    );
+  } catch (err) {
+    console.warn('[useRealtimeInvites] Could not attach primary listener, trying watchInvitations fallback:', err);
+    if (onError) onError(err);
+    unsub = watchInvitations('invitedEmail', cleanEmail, onInvites, onError);
+  }
+
+  return () => {
+    try {
+      unsub();
+    } catch (e) {
+      console.warn('[useRealtimeInvites] Unsubscribe warning:', e);
+    }
+  };
+}
+
+/**
+ * Real-Time Projects Live Listener (useRealtimeProjects)
+ * Ensures newly joined projects appear in the workspace/project switcher list
+ * immediately without page reloads.
+ */
+export function useRealtimeProjects(currentUser, onProjectsUpdate, onError) {
+  if (!currentUser?.email) return () => {};
+  const cleanEmail = currentUser.email.toLowerCase().trim();
+  const uid = currentUser.uid || currentUser.id;
+  let unsub = () => {};
+
+  try {
+    const database = db();
+    const projectsRef = collection(database, 'projects');
+    unsub = onSnapshot(
+      projectsRef,
+      (snap) => {
+        const projects = [];
+        snap.forEach(d => {
+          const data = { id: d.id, ...d.data() };
+          const isMember = (data.createdBy === uid) ||
+            (data.members && (data.members[uid] || (Array.isArray(data.members) && data.members.some(m => m.uid === uid || m.email === cleanEmail))));
+          if (isMember) {
+            projects.push(data);
+          }
+        });
+        if (onProjectsUpdate) onProjectsUpdate(projects);
+      },
+      (err) => {
+        console.error('[useRealtimeProjects] Projects listener error:', err);
+        if (onError) onError(err);
+      }
+    );
+  } catch (e) {
+    console.warn('[useRealtimeProjects] Fallback:', e);
+  }
+
+  return () => {
+    try { unsub(); } catch {}
+  };
+}
 
 export const firestoreBackend = {
   remote: true,
 
+  // Sync user profile: Always use Firebase Auth uid as doc ID (doc(db, "users", user.uid)) with { merge: true }
   async syncUser(user) {
-    const existing = await rest().get('userDirectory', user.email);
+    const cleanEmail = (user.email || '').toLowerCase().trim();
+    const uid = user.uid || user.id;
     const nowIso = new Date().toISOString();
-    await rest().set('userDirectory', user.email, {
-      uid: user.id,
-      email: user.email,
-      displayName: user.name || user.email.split('@')[0],
-      photoURL: user.photoURL || null,
-      createdAt: existing?.createdAt || nowIso,
-      lastSeenAt: nowIso
-    });
+
+    // 1. Primary storage: users/{uid} with { merge: true }
+    try {
+      const userRef = doc(db(), 'users', uid);
+      await setDoc(userRef, {
+        uid: uid,
+        email: cleanEmail,
+        displayName: user.name || user.displayName || cleanEmail.split('@')[0],
+        photoURL: user.photoURL || null,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+    } catch (e) {
+      console.warn('[firestoreBackend] SDK syncUser failed, trying REST:', e);
+    }
+
+    // 2. Directory lookup compatibility: userDirectory/{cleanEmail}
+    try {
+      const existing = await rest().get('userDirectory', cleanEmail);
+      await rest().set('userDirectory', cleanEmail, {
+        uid: uid,
+        email: cleanEmail,
+        displayName: user.name || user.displayName || cleanEmail.split('@')[0],
+        photoURL: user.photoURL || null,
+        createdAt: existing?.createdAt || nowIso,
+        lastSeenAt: nowIso
+      });
+    } catch (e) {
+      console.warn('[firestoreBackend] userDirectory sync warning:', e);
+    }
   },
 
+  // Case-insensitive user lookup by email
   async findUserByEmail(email) {
-    const d = await rest().get('userDirectory', email);
-    return d ? { id: d.uid, name: d.displayName || email.split('@')[0], email: d.email, photoURL: d.photoURL || null } : null;
+    const cleanEmail = (email || '').toLowerCase().trim();
+
+    // 1. Try querying users collection by case-insensitive normalized email
+    try {
+      const q = query(collection(db(), 'users'), where('email', '==', cleanEmail));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const d = snap.docs[0].data();
+        return {
+          id: d.uid,
+          name: d.displayName || cleanEmail.split('@')[0],
+          email: d.email,
+          photoURL: d.photoURL || null
+        };
+      }
+    } catch {}
+
+    // 2. Fallback to userDirectory/{cleanEmail} via REST
+    const d = await rest().get('userDirectory', cleanEmail);
+    return d ? { id: d.uid, name: d.displayName || cleanEmail.split('@')[0], email: d.email, photoURL: d.photoURL || null } : null;
   },
 
-  // Security rules only allow reading invitations you sent or received, so the
-  // duplicate check is scoped to the current inviter.
-  async findPendingInvitation(projectId, email, inviterId) {
-    const sent = await rest().where('invitations', { inviterId, inviteeEmail: email });
-    return sent.find(inv => inv.projectId === projectId && inv.status === 'Pending' && inv.expiresAtMs > Date.now()) || null;
+  // Query invitations before creating to ensure no duplicate pending invite exists
+  async findPendingInvitation(projectId, email, senderId) {
+    const cleanEmail = (email || '').toLowerCase().trim();
+
+    // 1. Try querying top-level invitations collection via SDK
+    try {
+      const q = query(
+        collection(db(), 'invitations'),
+        where('invitedEmail', '==', cleanEmail)
+      );
+      const snap = await getDocs(q);
+      const match = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .find(inv => inv.projectId === projectId && ['pending', 'Pending'].includes(inv.status) && (inv.expiresAtMs ? inv.expiresAtMs > Date.now() : true));
+      if (match) return match;
+    } catch {}
+
+    // 2. Fallback via REST query
+    try {
+      const sent = await rest().where('invitations', { senderId, invitedEmail: cleanEmail });
+      const found = sent.find(inv => inv.projectId === projectId && ['pending', 'Pending'].includes(inv.status) && inv.expiresAtMs > Date.now());
+      if (found) return found;
+    } catch {}
+
+    // 3. Fallback with inviterId & inviteeEmail
+    try {
+      const sent = await rest().where('invitations', { inviterId: senderId, inviteeEmail: cleanEmail });
+      return sent.find(inv => inv.projectId === projectId && ['pending', 'Pending'].includes(inv.status) && inv.expiresAtMs > Date.now()) || null;
+    } catch {}
+
+    return null;
   },
 
+  // Create invite with required top-level invitations fields
   async createInvitation(invitation) {
-    const record = Object.fromEntries(INVITATION_FIELDS.map(f => [f, invitation[f] ?? null]));
-    record.expiresAtMs = Date.parse(invitation.expiresAt);
-    await rest().create('invitations', invitation.id, record);
+    const cleanEmail = (invitation.invitedEmail || invitation.inviteeEmail || '').toLowerCase().trim();
+    const senderId = invitation.senderId || invitation.inviterId || auth().currentUser?.uid || '';
+    const invitedBy = invitation.invitedBy || invitation.inviterName || invitation.inviterEmail || auth().currentUser?.displayName || cleanEmail;
+
+    const record = {
+      id: invitation.id,
+      projectId: invitation.projectId,
+      projectName: invitation.projectName,
+      projectKey: invitation.projectKey || 'DEV',
+      invitedEmail: cleanEmail,
+      inviteeEmail: cleanEmail,
+      invitedBy: invitedBy,
+      inviterName: invitedBy,
+      senderId: senderId,
+      inviterId: senderId,
+      inviterEmail: (invitation.inviterEmail || auth().currentUser?.email || '').toLowerCase().trim(),
+      inviteeId: invitation.inviteeId || '',
+      role: invitation.role,
+      status: 'pending',
+      token: invitation.token || null,
+      expiresAt: invitation.expiresAt,
+      expiresAtMs: Date.parse(invitation.expiresAt) || (Date.now() + 7 * 86400000),
+      createdAt: serverTimestamp()
+    };
+
+    // Try SDK setDoc first
+    try {
+      const invRef = doc(db(), 'invitations', invitation.id);
+      await setDoc(invRef, record);
+      return;
+    } catch (e) {
+      console.warn('[firestoreBackend] SDK createInvitation failed, trying REST:', e);
+    }
+
+    // REST fallback
+    const restRecord = { ...record };
+    delete restRecord.createdAt;
+    restRecord.createdAt = new Date().toISOString();
+    await rest().create('invitations', invitation.id, restRecord);
   },
 
-  // Link-only invitations (created before the shared inbox, or offline) have no
-  // shared record; there is nothing to update for them.
+  // Atomic Accept via writeBatch:
+  // 1. Updates invitations/{inviteId} status to "accepted" (and respondedAt: serverTimestamp())
+  // 2. Adds user's uid and role/profile metadata to projects/{projectId} members list/map
+  async acceptInvitation(inviteId, user, invite) {
+    try {
+      const database = db();
+      const batch = writeBatch(database);
+      const inviteRef = doc(database, 'invitations', inviteId);
+      batch.update(inviteRef, {
+        status: 'accepted',
+        respondedAt: serverTimestamp()
+      });
+
+      if (invite?.projectId) {
+        const projectRef = doc(database, 'projects', invite.projectId);
+        const memberData = {
+          uid: user.uid || user.id,
+          email: (user.email || '').toLowerCase().trim(),
+          name: user.displayName || user.name || (user.email || '').split('@')[0],
+          role: invite.role || 'Developer',
+          joinedAt: new Date().toISOString()
+        };
+        batch.set(projectRef, {
+          members: {
+            [user.uid || user.id]: memberData
+          },
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      }
+
+      await batch.commit();
+      return { success: true };
+    } catch (err) {
+      console.warn('[firestoreBackend] SDK writeBatch accept error, falling back to REST:', err);
+      await this.updateInvitationStatus(inviteId, 'Accepted');
+    }
+  },
+
+  // Decline Invitation: Updates status to "declined"
+  async declineInvitation(inviteId) {
+    try {
+      const database = db();
+      const inviteRef = doc(database, 'invitations', inviteId);
+      await updateDoc(inviteRef, {
+        status: 'declined',
+        respondedAt: serverTimestamp()
+      });
+      return { success: true };
+    } catch (err) {
+      console.warn('[firestoreBackend] SDK decline error, falling back to REST:', err);
+      await this.updateInvitationStatus(inviteId, 'Declined');
+    }
+  },
+
   async updateInvitationStatus(id, status) {
+    const norm = status.toLowerCase() === 'accepted' ? 'Accepted' : status.toLowerCase() === 'declined' ? 'Declined' : status;
     if (!(await rest().get('invitations', id))) return;
-    await rest().update('invitations', id, { status, respondedAt: new Date().toISOString() });
+    await rest().update('invitations', id, { status: norm, respondedAt: new Date().toISOString() });
+  },
+
+  useRealtimeInvites(currentUser, callbacks) {
+    return useRealtimeInvites(currentUser, callbacks);
+  },
+
+  useRealtimeProjects(currentUser, onProjectsUpdate, onError) {
+    return useRealtimeProjects(currentUser, onProjectsUpdate, onError);
   },
 
   subscribeInbox(email, onChange, onError) {
-    return watchInvitations('inviteeEmail', email, onChange, onError);
+    const cleanEmail = (email || '').toLowerCase().trim();
+    return watchInvitations('invitedEmail', cleanEmail, onChange, () => {
+      watchInvitations('inviteeEmail', cleanEmail, onChange, onError);
+    });
   },
 
-  subscribeSent(inviterId, onChange, onError) {
-    return watchInvitations('inviterId', inviterId, onChange, onError);
+  subscribeSent(senderId, onChange, onError) {
+    return watchInvitations('senderId', senderId, onChange, () => {
+      watchInvitations('inviterId', senderId, onChange, onError);
+    });
   }
 };
