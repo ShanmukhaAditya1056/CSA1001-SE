@@ -169,7 +169,15 @@ export async function waitForAuthReady() {
       console.warn('[Firebase] authStateReady error:', e);
     }
   }
-  return auth?.currentUser || null;
+  const user = auth?.currentUser || null;
+  if (user) {
+    try {
+      await syncUserProfileToFirestore(user);
+    } catch (e) {
+      console.warn('[Firebase] Initial auth sync warning:', e);
+    }
+  }
+  return user;
 }
 
 export function getFirebaseAnalytics() {
@@ -283,5 +291,14 @@ export async function firebaseResetPassword(email) {
 export function subscribeFirebaseAuthState(callback) {
   const auth = getFirebaseAuth();
   if (!auth) return () => {};
-  return onAuthStateChanged(auth, callback);
+  return onAuthStateChanged(auth, async (user) => {
+    if (user) {
+      try {
+        await syncUserProfileToFirestore(user);
+      } catch (e) {
+        console.warn('[Firebase] Auth listener sync warning:', e);
+      }
+    }
+    if (callback) callback(user);
+  });
 }

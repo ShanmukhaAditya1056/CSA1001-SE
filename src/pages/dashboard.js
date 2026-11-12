@@ -109,7 +109,7 @@ export function renderDashboard(container) {
         </div>
 
         <!-- Cockpit Header Toolbar -->
-        <div class="flex items-center flex-wrap gap-2.5">
+        <div class="flex flex-row items-center gap-2.5 shrink-0">
           <!-- Flow & DORA Analytics Suite -->
           <button id="open-flow-analytics-btn" class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 font-inter text-label-md transition-all shadow-sm active:scale-95 cursor-pointer" title="View DORA 4 Metrics, Flow Distribution & Velocity Analytics">
             <span class="material-symbols-outlined text-[18px]">monitoring</span>
@@ -163,8 +163,8 @@ export function renderDashboard(container) {
         </div>
       ` : ''}
 
-      <!-- Top Summary Metrics Grid (Draggable Cards) -->
-      <div id="dash-metrics-grid" class="relative z-10 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 mb-8">
+      <!-- Top Summary Metrics Grid (Balanced 5-Column Responsive Grid) -->
+      <div id="dash-metrics-grid" class="relative z-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8 [&>*:last-child]:sm:col-span-2 [&>*:last-child]:lg:col-span-1">
         ${renderMetricCards({
           project, totalReqs, completedReqs, inProgReqs, draftReqs, mCount, sCount, cCount, wCount,
           activeSprint, sprintTasks, sprintProgress, sprintDonePts, sprintTotalPts,
@@ -449,6 +449,12 @@ function renderMetricCards(data, order = DEFAULT_METRIC_ORDER) {
             <span class="bg-surface-panel py-1 rounded text-text-muted" title="Won't">W:${wCount}</span>
           </div>
         </div>
+        ${totalReqs === 0 ? `
+          <button type="button" onclick="event.stopPropagation(); window.__dashOpenNewReq ? window.__dashOpenNewReq() : (window.location.hash='#/requirements')" class="mt-2.5 w-full py-1.5 px-2.5 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 text-[11px] font-jetbrains font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer">
+            <span class="material-symbols-outlined text-[14px]">add</span>
+            <span>+ Add Requirement</span>
+          </button>
+        ` : ''}
       </div>
     `,
 
@@ -474,6 +480,12 @@ function renderMetricCards(data, order = DEFAULT_METRIC_ORDER) {
           <span class="text-text-muted">Story Points</span>
           <span class="text-text-primary font-semibold">${sprintDonePts} <span class="text-text-muted font-normal">/ ${sprintTotalPts} pts</span></span>
         </div>
+        ${sprintTasks.length === 0 ? `
+          <button type="button" onclick="event.stopPropagation(); window.__dashOpenNewTask ? window.__dashOpenNewTask() : (window.location.hash='#/sprints')" class="mt-2.5 w-full py-1.5 px-2.5 rounded-lg bg-secondary/10 hover:bg-secondary/20 text-secondary border border-secondary/25 text-[11px] font-jetbrains font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer">
+            <span class="material-symbols-outlined text-[14px]">add</span>
+            <span>+ Plan Sprint Task</span>
+          </button>
+        ` : ''}
       </div>
     `,
 
@@ -518,6 +530,12 @@ function renderMetricCards(data, order = DEFAULT_METRIC_ORDER) {
             <span class="text-text-muted italic w-full text-center">No QA test assertions recorded</span>
           `}
         </div>
+        ${(!hasQaData || totalRuns === 0) ? `
+          <button type="button" onclick="event.stopPropagation(); window.__dashOpenNewTestRun ? window.__dashOpenNewTestRun() : (window.location.hash='#/tests')" class="mt-2.5 w-full py-1.5 px-2.5 rounded-lg bg-status-passed/10 hover:bg-status-passed/20 text-status-passed border border-status-passed/25 text-[11px] font-jetbrains font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer">
+            <span class="material-symbols-outlined text-[14px]">add</span>
+            <span>+ Log QA Run</span>
+          </button>
+        ` : ''}
       </div>
     `,
 
@@ -547,6 +565,12 @@ function renderMetricCards(data, order = DEFAULT_METRIC_ORDER) {
             <div class="col-span-3 bg-surface-panel/60 text-text-muted py-1 rounded italic">Zero defect telemetry</div>
           `}
         </div>
+        ${openBugs.length === 0 ? `
+          <button type="button" onclick="event.stopPropagation(); window.__dashOpenNewDefect ? window.__dashOpenNewDefect() : (window.location.hash='#/bugs')" class="mt-2.5 w-full py-1.5 px-2.5 rounded-lg bg-status-defect/10 hover:bg-status-defect/20 text-status-defect border border-status-defect/25 text-[11px] font-jetbrains font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer">
+            <span class="material-symbols-outlined text-[14px]">add</span>
+            <span>+ Log Defect</span>
+          </button>
+        ` : ''}
       </div>
     `,
 
@@ -572,6 +596,12 @@ function renderMetricCards(data, order = DEFAULT_METRIC_ORDER) {
             ${failedRuns > 0 ? `${failedRuns} QA ISSUES` : (hasQaData ? 'RELEASE READY' : 'NO QA EVIDENCE')}
           </span>
         </div>
+        ${!targetRelease ? `
+          <button type="button" onclick="event.stopPropagation(); window.__dashOpenNewRelease ? window.__dashOpenNewRelease() : (window.location.hash='#/releases')" class="mt-2.5 w-full py-1.5 px-2.5 rounded-lg bg-status-release/10 hover:bg-status-release/20 text-status-release border border-status-release/25 text-[11px] font-jetbrains font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer">
+            <span class="material-symbols-outlined text-[14px]">add</span>
+            <span>+ Schedule Release</span>
+          </button>
+        ` : ''}
       </div>
     `
   };

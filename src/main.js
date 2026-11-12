@@ -199,24 +199,30 @@ function renderShell(contentRenderer) {
     <!-- Top Navigation Header -->
     <div id="content-shell" class="pl-0 lg:pl-64 flex flex-col min-h-screen transition-all duration-300">
       <header id="top-header" class="fixed top-0 left-0 lg:left-64 right-0 h-14 bg-surface-canvas/90 backdrop-blur-xl border-b border-border-subtle z-50 shadow-sm flex items-center justify-between px-4 lg:px-6 transition-all duration-300">
-        <!-- Left: Mobile Hamburger + Project Indicator -->
-        <div class="flex items-center gap-2 lg:gap-4">
-          <button id="mobile-hamburger-btn" class="lg:hidden p-1.5 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-primary border border-border-subtle transition-colors cursor-pointer mr-1" title="Toggle Navigation Drawer" aria-label="Toggle Navigation Drawer">
+        <!-- Left: Mobile Hamburger + Compact Breadcrumb / Context Indicator -->
+        <div class="flex items-center gap-2 lg:gap-3 min-w-0">
+          <button id="mobile-hamburger-btn" class="lg:hidden p-1.5 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-primary border border-border-subtle transition-colors cursor-pointer mr-1 shrink-0" title="Toggle Navigation Drawer" aria-label="Toggle Navigation Drawer">
             <span class="material-symbols-outlined text-[20px]">menu</span>
           </button>
-          <div class="flex items-center gap-2">
-            <span class="font-jetbrains text-[11px] font-bold px-2 py-0.5 rounded bg-primary-container/20 text-primary">${project.key}</span>
-            <span class="font-geist text-body-md font-bold text-text-primary">${project.name}</span>
-          </div>
-          <div class="hidden sm:flex items-center gap-1 font-jetbrains text-[10px]">
-            <span class="px-2 py-0.5 rounded-full bg-status-in-progress-surface text-status-in-progress font-semibold">STAGE</span>
-            <span class="px-2 py-0.5 rounded-full bg-status-passed-surface text-status-passed font-semibold">PRODUCTION</span>
+          <div class="flex items-center gap-1.5 font-jetbrains text-[11px] font-semibold tracking-wide text-text-muted truncate">
+            <span class="text-text-secondary">PROGRAM</span>
+            <span class="text-text-muted/60">/</span>
+            <span class="text-primary font-bold px-1.5 py-0.5 rounded bg-primary/10 border border-primary/20">${(project.key || 'DEV').toUpperCase()}-CORE</span>
+            <span class="text-text-muted/60">/</span>
+            <span class="text-text-primary hidden sm:inline">LIFECYCLE COCKPIT</span>
           </div>
         </div>
 
-        <!-- Right: Search & User Profile Menu -->
-        <div class="flex items-center gap-3">
-          <!-- Unified Create New... Top Navigation Dropdown -->
+        <!-- Right: Quick Search, Create, Theme, Invitations, User Profile -->
+        <div class="flex items-center gap-2.5 sm:gap-3 shrink-0">
+          <!-- Quick Search Button (Ctrl+K) -->
+          <button id="quick-search-btn" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-muted hover:text-text-primary border border-border-subtle transition-all cursor-pointer">
+            <span class="material-symbols-outlined text-[16px]">search</span>
+            <span class="text-body-sm font-inter hidden sm:inline">Quick Search...</span>
+            <kbd class="font-jetbrains text-[10px] bg-surface-base px-1.5 py-0.5 rounded text-text-secondary border border-border-subtle">Ctrl+K</kbd>
+          </button>
+
+          <!-- Primary [+ Create...] Button Dropdown -->
           <div class="relative" id="global-create-dropdown-wrapper">
             <button id="global-create-btn" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-on-primary font-inter text-label-md font-semibold hover:brightness-110 active:scale-95 transition-all shadow-md shadow-primary/25 cursor-pointer">
               <span class="material-symbols-outlined text-[18px]">add_circle</span>
@@ -272,66 +278,31 @@ function renderShell(contentRenderer) {
             </div>
           </div>
 
-          <!-- Quick Search Button (Ctrl+K) -->
-          <button id="quick-search-btn" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-muted hover:text-text-primary border border-border-subtle transition-all">
-            <span class="material-symbols-outlined text-[16px]">search</span>
-            <span class="text-body-sm font-inter hidden sm:inline">Quick Search...</span>
-            <kbd class="font-jetbrains text-[10px] bg-surface-base px-1.5 py-0.5 rounded text-text-secondary border border-border-subtle">Ctrl+K</kbd>
-          </button>
-
-          <!-- Light / Dark Theme -->
-          <button id="theme-toggle-btn" class="flex items-center justify-center w-9 h-9 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-muted hover:text-text-primary border border-border-subtle transition-all cursor-pointer" title="${themeToggleState().label}" aria-label="${themeToggleState().label}">
+          <!-- Light / Dark Theme Toggle -->
+          <button id="theme-toggle-btn" class="flex items-center justify-center w-9 h-9 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-muted hover:text-text-primary border border-border-subtle transition-all cursor-pointer shrink-0" title="${themeToggleState().label}" aria-label="${themeToggleState().label}">
             <span class="material-symbols-outlined text-[20px]">${themeToggleState().icon}</span>
           </button>
 
-          
-          <!-- Live Team Collab Stream Activity Button -->
-          <div class="relative" id="team-stream-dropdown-wrapper">
-            <button id="team-stream-btn" class="relative flex items-center justify-center w-9 h-9 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-muted hover:text-text-primary border border-border-subtle transition-all cursor-pointer" title="Live Team Activity Stream">
-              <span class="material-symbols-outlined text-[20px] text-secondary">bolt</span>
-              <span id="team-stream-badge" class="hidden absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-secondary animate-ping"></span>
-            </button>
-            <div id="team-stream-menu" class="absolute right-0 top-full mt-1.5 w-80 bg-surface-canvas border border-border-strong rounded-xl p-3 shadow-2xl hidden z-[100] animate-scale-in">
-              <div class="flex items-center justify-between border-b border-border-subtle pb-2 mb-2">
-                <div class="flex items-center gap-1.5 font-geist font-bold text-body-sm text-text-primary">
-                  <span class="material-symbols-outlined text-[16px] text-secondary">bolt</span>
-                  <span>Live Team Stream</span>
-                </div>
-                <span id="team-stream-count" class="text-[10px] font-jetbrains text-text-muted">Real-time sync</span>
-              </div>
-              <div id="team-stream-items" class="space-y-2 max-h-72 overflow-y-auto pr-1">
-                <div class="text-[11px] font-jetbrains text-text-muted text-center py-4">No recent team activities. Move tasks or file defects to broadcast live!</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- User Manual -->
-          <a href="#/help" id="help-manual-btn" class="flex items-center gap-1.5 h-9 px-2.5 rounded-lg border transition-all ${activeNav === 'help' ? 'bg-primary/15 text-primary border-primary/40' : 'bg-surface-panel hover:bg-surface-elevated text-text-muted hover:text-text-primary border-border-subtle'}" title="User Manual">
-            <span class="material-symbols-outlined text-[20px]">menu_book</span>
-            <span class="text-body-sm font-inter hidden lg:inline">Help</span>
-          </a>
-
-          <!-- Central In-App Invitations Inbox Button -->
-          <button id="inbox-invitations-btn" class="relative flex items-center justify-center w-9 h-9 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-muted hover:text-text-primary border border-border-subtle transition-all cursor-pointer" title="Project Invitations Inbox">
+          <!-- Central In-App Invitations Inbox Button (with real-time unread badge) -->
+          <button id="inbox-invitations-btn" class="relative flex items-center justify-center w-9 h-9 rounded-lg bg-surface-panel hover:bg-surface-elevated text-text-muted hover:text-text-primary border border-border-subtle transition-all cursor-pointer shrink-0" title="Project Invitations Inbox">
             ${inboxBadgeHtml(pendingInvsCount)}
           </button>
 
-
-          <!-- User Profile & Sign Out dropdown -->
-          <div class="relative group">
-            <div class="flex items-center gap-2.5 p-1 rounded-lg hover:bg-surface-panel transition-colors cursor-pointer">
-              ${avatar(user?.name || user?.email || 'User', 'w-8 h-8 text-[12px]', user?.photoURL)}
-              <div class="hidden md:flex flex-col text-left">
-                <span class="font-geist text-body-sm font-bold text-text-primary leading-tight">${userName}</span>
-                <span class="font-jetbrains text-[10px] text-text-muted leading-tight">${userRole}</span>
+          <!-- User Profile & Sign Out dropdown (prevent clipping with max-w-[150px] truncate and shrink-0) -->
+          <div class="relative group shrink-0">
+            <div class="flex items-center gap-2 p-1 rounded-lg hover:bg-surface-panel transition-colors cursor-pointer">
+              ${avatar(user?.name || user?.email || 'User', 'w-8 h-8 text-[12px] shrink-0', user?.photoURL)}
+              <div class="hidden md:flex flex-col text-left max-w-[150px]">
+                <span class="font-geist text-body-sm font-bold text-text-primary leading-tight truncate" title="${userName}">${userName}</span>
+                <span class="font-jetbrains text-[10px] text-text-muted leading-tight truncate">${userRole}</span>
               </div>
-              <span class="material-symbols-outlined text-[16px] text-text-muted">expand_more</span>
+              <span class="material-symbols-outlined text-[16px] text-text-muted shrink-0">expand_more</span>
             </div>
 
             <!-- Dropdown Menu -->
             <div class="absolute right-0 top-full mt-1 w-56 bg-surface-canvas border border-border-strong rounded-xl p-2 shadow-2xl hidden group-hover:block z-50 animate-scale-in">
               <div class="px-3 py-2 border-b border-border-subtle mb-1">
-                <div class="font-geist text-body-sm font-bold text-text-primary">${userName}</div>
+                <div class="font-geist text-body-sm font-bold text-text-primary truncate">${userName}</div>
                 <div class="font-jetbrains text-[11px] text-text-muted truncate">${userEmail}</div>
               </div>
               <button id="menu-profile-btn" class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-body-sm text-text-secondary hover:bg-surface-panel hover:text-text-primary transition-colors text-left cursor-pointer">
@@ -359,7 +330,7 @@ function renderShell(contentRenderer) {
               </button>
 
               <div class="border-t border-border-subtle my-1"></div>
-              <button id="signout-btn" class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-body-sm text-status-defect hover:bg-status-defect-surface transition-colors text-left">
+              <button id="signout-btn" class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-body-sm text-status-defect hover:bg-status-defect-surface transition-colors text-left cursor-pointer">
                 <span class="material-symbols-outlined text-[16px]">logout</span>
                 <span>Sign Out</span>
               </button>
@@ -370,31 +341,6 @@ function renderShell(contentRenderer) {
 
       <!-- Main Page Content Slot -->
       <main id="main-content" class="w-full pt-14 flex-1 bg-surface-base"></main>
-
-      <!-- Global Floating Action Button (FAB) Speed-Dial -->
-      <div id="global-fab-container" class="fixed bottom-6 right-6 z-40 flex flex-col-reverse items-end gap-2.5">
-        <button id="global-fab-main-btn" class="w-13 h-13 rounded-full bg-primary text-on-primary shadow-xl shadow-primary/30 flex items-center justify-center hover:scale-105 active:scale-95 transition-all cursor-pointer group" title="Quick Actions">
-          <span id="global-fab-icon" class="material-symbols-outlined text-[26px] transition-transform duration-300">add</span>
-        </button>
-        <div id="global-fab-speed-dial" class="hidden flex flex-col items-end gap-2 animate-scale-in">
-          <button id="fab-act-req" class="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-surface-canvas border border-border-strong text-text-primary text-body-sm shadow-lg hover:border-primary transition-all cursor-pointer">
-            <span class="font-medium">Requirement</span>
-            <span class="w-7 h-7 rounded-full bg-primary/20 text-primary flex items-center justify-center material-symbols-outlined text-[15px]">rule</span>
-          </button>
-          <button id="fab-act-task" class="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-surface-canvas border border-border-strong text-text-primary text-body-sm shadow-lg hover:border-secondary transition-all cursor-pointer">
-            <span class="font-medium">Sprint Task</span>
-            <span class="w-7 h-7 rounded-full bg-secondary/20 text-secondary flex items-center justify-center material-symbols-outlined text-[15px]">assignment</span>
-          </button>
-          <button id="fab-act-defect" class="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-surface-canvas border border-border-strong text-text-primary text-body-sm shadow-lg hover:border-status-defect transition-all cursor-pointer">
-            <span class="font-medium">Log Defect</span>
-            <span class="w-7 h-7 rounded-full bg-status-defect-surface text-status-defect flex items-center justify-center material-symbols-outlined text-[15px]">pest_control</span>
-          </button>
-          <button id="fab-act-test" class="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-surface-canvas border border-border-strong text-text-primary text-body-sm shadow-lg hover:border-status-passed transition-all cursor-pointer">
-            <span class="font-medium">Test Run</span>
-            <span class="w-7 h-7 rounded-full bg-status-passed-surface text-status-passed flex items-center justify-center material-symbols-outlined text-[15px]">play_circle</span>
-          </button>
-        </div>
-      </div>
     </div>
   `;
 
@@ -462,7 +408,7 @@ function renderShell(contentRenderer) {
   });
 
 
-  // Global Action Menu (Top Dropdown & FAB Speed-dial)
+  // Global Action Menu (Top [+ Create...] Dropdown)
   const activeProjId = activeProject.id;
   const createBtn = document.getElementById('global-create-btn');
   const createMenu = document.getElementById('global-create-menu');
@@ -471,70 +417,47 @@ function renderShell(contentRenderer) {
     createMenu?.classList.toggle('hidden');
   });
 
-  const fabBtn = document.getElementById('global-fab-main-btn');
-  const fabMenu = document.getElementById('global-fab-speed-dial');
-  const fabIcon = document.getElementById('global-fab-icon');
-  fabBtn?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const isClosed = fabMenu?.classList.contains('hidden');
-    if (isClosed) {
-      fabMenu?.classList.remove('hidden');
-      if (fabIcon) fabIcon.style.transform = 'rotate(45deg)';
-    } else {
-      fabMenu?.classList.add('hidden');
-      if (fabIcon) fabIcon.style.transform = 'rotate(0deg)';
-    }
-  });
-
   document.addEventListener('click', () => {
     createMenu?.classList.add('hidden');
-    fabMenu?.classList.add('hidden');
-    if (fabIcon) fabIcon.style.transform = 'rotate(0deg)';
   });
 
   const triggerNewReq = () => {
     createMenu?.classList.add('hidden');
-    fabMenu?.classList.add('hidden');
     if (activeProjId) openNewRequirementModal(activeProjId);
     else showToast('Select or create a project first.', 'info');
   };
   const triggerNewTask = () => {
     createMenu?.classList.add('hidden');
-    fabMenu?.classList.add('hidden');
     if (activeProjId) openTaskModal(activeProjId, null, () => route());
     else showToast('Select or create a project first.', 'info');
   };
   const triggerLogDefect = () => {
     createMenu?.classList.add('hidden');
-    fabMenu?.classList.add('hidden');
     if (activeProjId) openNewDefectModal(activeProjId);
     else showToast('Select or create a project first.', 'info');
   };
   const triggerTestRun = () => {
     createMenu?.classList.add('hidden');
-    fabMenu?.classList.add('hidden');
     if (activeProjId) openNewTestRunModal(activeProjId);
     else showToast('Select or create a project first.', 'info');
   };
   const triggerRelease = () => {
     createMenu?.classList.add('hidden');
-    fabMenu?.classList.add('hidden');
     if (activeProjId) openReleaseModal(activeProjId, () => route());
     else showToast('Select or create a project first.', 'info');
   };
 
+  // Expose global modal triggers for dashboard actionable empty states
+  window.__dashOpenNewReq = triggerNewReq;
+  window.__dashOpenNewTask = triggerNewTask;
+  window.__dashOpenNewDefect = triggerLogDefect;
+  window.__dashOpenNewTestRun = triggerTestRun;
+  window.__dashOpenNewRelease = triggerRelease;
+
   document.getElementById('global-act-req')?.addEventListener('click', triggerNewReq);
-  document.getElementById('fab-act-req')?.addEventListener('click', triggerNewReq);
-
   document.getElementById('global-act-task')?.addEventListener('click', triggerNewTask);
-  document.getElementById('fab-act-task')?.addEventListener('click', triggerNewTask);
-
   document.getElementById('global-act-defect')?.addEventListener('click', triggerLogDefect);
-  document.getElementById('fab-act-defect')?.addEventListener('click', triggerLogDefect);
-
   document.getElementById('global-act-test')?.addEventListener('click', triggerTestRun);
-  document.getElementById('fab-act-test')?.addEventListener('click', triggerTestRun);
-
   document.getElementById('global-act-release')?.addEventListener('click', triggerRelease);
 
   document.getElementById('global-act-ci')?.addEventListener('click', () => {

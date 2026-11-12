@@ -16,7 +16,8 @@ import {
   where,
   onSnapshot,
   writeBatch,
-  serverTimestamp
+  serverTimestamp,
+  arrayUnion
 } from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js';
 import { getFirebaseAuth, waitForAuthReady } from './firebase.js';
 import { createFirestoreRest } from './firestoreRest.js';
@@ -362,17 +363,23 @@ export const firestoreBackend = {
 
       if (invite?.projectId) {
         const projectRef = doc(database, 'projects', invite.projectId);
+        const uid = user.uid || user.id;
+        const cleanEmail = (user.email || '').toLowerCase().trim();
+        const displayName = user.displayName || user.name || cleanEmail.split('@')[0];
+        const role = invite.role || 'Developer';
         const memberData = {
-          uid: user.uid || user.id,
-          email: (user.email || '').toLowerCase().trim(),
-          name: user.displayName || user.name || (user.email || '').split('@')[0],
-          role: invite.role || 'Developer',
+          uid,
+          email: cleanEmail,
+          displayName,
+          name: displayName,
+          role,
           joinedAt: new Date().toISOString()
         };
         batch.set(projectRef, {
           members: {
-            [user.uid || user.id]: memberData
+            [uid]: memberData
           },
+          memberIds: arrayUnion(uid),
           updatedAt: serverTimestamp()
         }, { merge: true });
       }
