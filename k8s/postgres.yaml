@@ -1,0 +1,42 @@
+# PostgreSQL 16 — Deployment + ClusterIP Service (local demo; data is not persisted)
+# Requires the "devtrack-secrets" Secret (see k8s/README.md, step 2).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devtrack-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: devtrack-postgres
+  template:
+    metadata:
+      labels:
+        app: devtrack-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: "devtrack"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: devtrack-secrets
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              value: "devtrack"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: devtrack-postgres
+spec:
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector:
+    app: devtrack-postgres

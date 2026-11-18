@@ -102,7 +102,37 @@ DevTrack is architected for seamless cloud deployment:
 
 ---
 
-## 5. Troubleshooting & FAQ
+## 5. Kubernetes Staging Deployment (Optional / Demo)
+
+DevTrack manifests are located in the [`/k8s`](../k8s) directory. See [`k8s/README.md`](../k8s/README.md) for details and limits.
+
+### Deploying Locally (Docker Desktop / Minikube):
+```bash
+# 1. Build local image
+docker build -t devtrack-api:latest .
+
+# 2. Create secrets (once per cluster)
+kubectl create secret generic devtrack-secrets \
+  --from-literal=JWT_SECRET="$(openssl rand -hex 32)" \
+  --from-literal=INVITE_SECRET="$(openssl rand -hex 32)" \
+  --from-literal=POSTGRES_PASSWORD="$(openssl rand -hex 16)"
+
+# 3. Apply manifests
+kubectl apply -f k8s/
+
+# 4. Verify pods and NodePort service
+kubectl get pods
+kubectl get svc devtrack-api-service
+
+# 5. Probe health check
+curl http://localhost:30080/api/health
+```
+
+Teardown: `kubectl delete -f k8s/`
+
+---
+
+## 6. Troubleshooting & FAQ
 
 ### Port 5173 or 5432 Already in Use
 If another service is using port 5173:

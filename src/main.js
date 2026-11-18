@@ -17,6 +17,7 @@ import { renderCicd } from './pages/cicd.js';
 import { renderGettingStarted } from './pages/gettingStarted.js';
 import { renderInvite } from './pages/invite.js';
 import { renderManual } from './pages/manual.js';
+import { renderSeTools } from './pages/seTools.js';
 import { toggleTheme, themeToggleState } from './theme.js';
 import { openMemberProfile } from './pages/memberProfile.js';
 import { teamCollab } from './collab.js';
@@ -43,7 +44,8 @@ const ROUTES = {
   '#/audit': { render: renderSettings, nav: 'settings' },
   '#/ci-cd': { render: renderCicd, nav: 'cicd' },
   '#/getting-started': { render: renderGettingStarted, nav: 'getting-started' },
-  '#/help': { render: renderManual, nav: 'help' }
+  '#/help': { render: renderManual, nav: 'help' },
+  '#/se-tools': { render: renderSeTools, nav: 'se-tools' }
 };
 
 function getActiveNavKey(hash) {
@@ -156,6 +158,10 @@ function renderShell(contentRenderer) {
               <a href="#/ci-cd" class="nav-item flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors ${activeNav === 'cicd' ? 'bg-surface-panel text-primary font-semibold shadow-sm' : 'text-text-secondary hover:bg-surface-panel hover:text-text-primary'}">
                 <span class="material-symbols-outlined text-[18px]">terminal</span>
                 <span>CI/CD Pipeline</span>
+              </a>
+              <a href="#/se-tools" class="nav-item flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors ${activeNav === 'se-tools' ? 'bg-surface-panel text-primary font-semibold shadow-sm' : 'text-text-secondary hover:bg-surface-panel hover:text-text-primary'}">
+                <span class="material-symbols-outlined text-[18px]">construction</span>
+                <span>SE Tools</span>
               </a>
             </nav>
           </div>

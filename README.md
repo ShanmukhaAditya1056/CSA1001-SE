@@ -3,6 +3,7 @@
 [![CI Pipeline](https://github.com/ShanmukhaAditya1056/CSA1001-SE/actions/workflows/ci.yml/badge.svg)](https://github.com/ShanmukhaAditya1056/CSA1001-SE/actions/workflows/ci.yml)
 [![Node Version](https://img.shields.io/badge/node-20_LTS-green.svg)](https://nodejs.org/)
 [![Docker Compose](https://img.shields.io/badge/docker-compose_v2.28-blue.svg)](https://docs.docker.com/compose/)
+[![Kubernetes](https://img.shields.io/badge/kubernetes-v1.30-326CE5?logo=kubernetes&logoColor=white)](./k8s)
 [![Design System](https://img.shields.io/badge/Stitch_Project-5183196354421110263-purple.svg)](https://stitch.google.com/)
 
 **DevTrack** is a medium-complexity, full-stack Software Engineering Lifecycle Management Platform built to demonstrate the complete software engineering lifecycle: requirements elicitation, MoSCoW prioritization, agile sprint planning, Kanban execution, manual test case verification, defect tracking, forward and backward traceability matrices, containerization, and continuous integration.
@@ -92,6 +93,17 @@ To run DevTrack containerized alongside a PostgreSQL 16 database:
 docker compose up --build -d
 ```
 Access the application at `http://localhost:5173/`.
+
+---
+
+## ☸️ Container Orchestration (Kubernetes)
+
+The project includes Kubernetes manifests for a local demo cluster in [`/k8s`](./k8s):
+- **API Deployment & Service:** [`k8s/devtrack-api.yaml`](./k8s/devtrack-api.yaml) (2 replicas with `/api/health` liveness and readiness probes)
+- **PostgreSQL Database:** [`k8s/postgres.yaml`](./k8s/postgres.yaml)
+- **Local Staging NodePort:** `http://localhost:30080`
+
+To set up the secrets and deploy with `kubectl apply -f k8s/`, see [`k8s/README.md`](./k8s/README.md).
 
 ---
 

@@ -214,6 +214,14 @@ export function renderCicd(container) {
         </div>
 
         <div class="flex items-center flex-wrap gap-3">
+          <!-- Link to the Kubernetes staging manifests (Stage 6 deploy target) -->
+          <a href="https://github.com/ShanmukhaAditya1056/CSA1001-SE/tree/main/k8s" target="_blank" rel="noopener noreferrer"
+             title="Inspect Kubernetes Staging manifests"
+             class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-canvas border border-border-subtle text-text-secondary hover:text-primary hover:border-primary text-[12px] font-jetbrains font-semibold transition-colors">
+            <span aria-hidden="true">☸</span>
+            <span>K8s Manifests</span>
+          </a>
+
           <!-- Historical Runs Dropdown -->
           <div class="flex items-center gap-2 bg-surface-canvas border border-border-subtle rounded-lg px-3 py-1.5 shadow-sm">
             <span class="material-symbols-outlined text-text-muted text-[18px]">history</span>
