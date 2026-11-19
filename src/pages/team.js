@@ -18,7 +18,7 @@ export function renderTeam(container) {
   const isOwner = currentUserRole === 'Owner';
   const projectInvs = store.getProjectInvitations(project.id);
   const nowMs = Date.now();
-  const pendingInvs = projectInvs.filter(i => i.status === 'Pending' && new Date(i.expiresAt).getTime() > nowMs);
+  const pendingInvs = projectInvs.filter(i => String(i.status || '').toLowerCase() === 'pending' && new Date(i.expiresAt).getTime() > nowMs);
   const historyInvs = projectInvs.filter(i => i.status !== 'Pending' || new Date(i.expiresAt).getTime() <= nowMs);
   const prefs = getTeamPreferences(project.id);
 

@@ -85,6 +85,11 @@ export async function sendProjectInvitation(projectId, email, role) {
 
   try {
     const backend = await getBackend();
+    // With Firebase configured, an invite stored only in this browser never
+    // reaches the recipient, so refuse instead of failing silently.
+    if (!backend.remote && isFirestoreConfigured()) {
+      return { error: `${INVITE_FAILED_MESSAGE} Live sync is unavailable right now. Reload the page and try again.` };
+    }
     if (await backend.findPendingInvitation(projectId, cleanEmail, store.currentUser.id)) {
       return { error: PENDING_INVITATION_MESSAGE };
     }
@@ -143,11 +148,14 @@ export async function resendProjectInvitation(invitationId) {
   if (res.error) return res;
   try {
     const backend = await getBackend();
-    if (backend && backend.updateInvitationStatus) {
+    if (backend.resendInvitation) {
+      await backend.resendInvitation(res.data);
+    } else if (backend.updateInvitationStatus) {
       await backend.updateInvitationStatus(invitationId, 'Pending');
     }
   } catch (err) {
     console.warn('[Directory] Resend not propagated:', err);
+    return { error: `${INVITE_FAILED_MESSAGE} ${describeDirectoryError(err)}` };
   }
   return res;
 }

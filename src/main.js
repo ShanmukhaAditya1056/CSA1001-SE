@@ -811,8 +811,10 @@ export function openInvitationsInboxModal(onChanged) {
   const invs = store.getUserInvitations(user.email).map(inv =>
     Object.fromEntries(Object.entries(inv).map(([k, v]) => [k, typeof v === 'string' ? escapeHtml(v) : v])));
   const nowMs = Date.now();
-  const pendingInvs = invs.filter(i => i.status === 'Pending' && new Date(i.expiresAt).getTime() > nowMs);
-  const historyInvs = invs.filter(i => i.status !== 'Pending' || new Date(i.expiresAt).getTime() <= nowMs);
+  // Firestore stores "pending", the local store "Pending": compare case-insensitively.
+  const isPending = (i) => String(i.status || '').toLowerCase() === 'pending' && new Date(i.expiresAt).getTime() > nowMs;
+  const pendingInvs = invs.filter(isPending);
+  const historyInvs = invs.filter(i => !isPending(i));
 
   showModal(`
     <div class="space-y-4">

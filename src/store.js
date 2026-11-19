@@ -18,6 +18,13 @@ function generateId() {
 
 function now() { return new Date().toISOString(); }
 
+// Firestore records use lowercase statuses ("pending"); the local store uses
+// "Pending"/"Accepted"/... Normalise on the way in so status checks match.
+function normalizeInviteStatus(status) {
+  const s = String(status || '').trim().toLowerCase();
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : 'Pending';
+}
+
 function normalizeEmail(email) {
   return (email || '').trim().toLowerCase();
 }
@@ -977,7 +984,7 @@ class Store {
         invitedBy: remote.invitedBy || remote.inviterName || '',
         senderId: remote.senderId || remote.inviterId || '',
         role: remote.role || 'Developer',
-        status: remote.status || 'Pending',
+        status: normalizeInviteStatus(remote.status),
         token: remote.token || '',
         createdAt: remote.createdAt || now(),
         expiresAt: remote.expiresAt || new Date(Date.now() + 7 * 86400000).toISOString()
@@ -998,7 +1005,7 @@ class Store {
       const res = remoteStatus === 'accepted' ? this.acceptInvitation(local.id) : this.declineInvitation(local.id);
       if (!res.error) return true;
     }
-    if (statusChanged) local.status = remote.status;
+    if (statusChanged) local.status = normalizeInviteStatus(remote.status);
     if (!existed || statusChanged) this._save();
     return Boolean(!existed || statusChanged);
   }

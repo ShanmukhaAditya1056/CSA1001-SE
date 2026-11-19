@@ -418,6 +418,22 @@ export const firestoreBackend = {
     }
   },
 
+  // Resend: refresh the shared record, or create it if it never reached
+  // Firestore (e.g. it was sent while the app was in browser-only mode).
+  async resendInvitation(invitation) {
+    const existing = await rest().get('invitations', invitation.id);
+    if (!existing) {
+      await this.createInvitation(invitation);
+      return;
+    }
+    await rest().update('invitations', invitation.id, {
+      // Lowercase so the invitee's where('status', '==', 'pending') listener matches.
+      status: 'pending',
+      expiresAt: invitation.expiresAt,
+      expiresAtMs: Date.parse(invitation.expiresAt) || (Date.now() + 7 * 86400000)
+    });
+  },
+
   async updateInvitationStatus(id, status) {
     const norm = status.toLowerCase() === 'accepted' ? 'Accepted' : status.toLowerCase() === 'declined' ? 'Declined' : status;
     if (!(await rest().get('invitations', id))) return;

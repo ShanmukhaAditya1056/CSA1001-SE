@@ -45,7 +45,7 @@ export function renderInvite(container, token) {
   const isAccepted = invitation.status === 'Accepted';
   const isDeclined = invitation.status === 'Declined';
   const isRevoked = invitation.status === 'Revoked';
-  const isPending = invitation.status === 'Pending' && !isExpired;
+  const isPending = String(invitation.status || '').toLowerCase() === 'pending' && !isExpired;
   if (!isPending) clearPendingInvite();
 
   // Authentication & Identity matching

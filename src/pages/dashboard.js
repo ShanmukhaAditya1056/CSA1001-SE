@@ -77,7 +77,7 @@ export function renderDashboard(container) {
   // Pending project invitations for current user
   const userEmail = store.currentUser?.email || '';
   const nowMs = Date.now();
-  const pendingInvs = userEmail ? store.getUserInvitations(userEmail).filter(i => i.status === 'Pending' && new Date(i.expiresAt).getTime() > nowMs) : [];
+  const pendingInvs = userEmail ? store.getUserInvitations(userEmail).filter(i => String(i.status || '').toLowerCase() === 'pending' && new Date(i.expiresAt).getTime() > nowMs) : [];
 
   // Load user layout configuration
   const layoutStorageKey = `devtrack_dash_layout_${project.id}`;
