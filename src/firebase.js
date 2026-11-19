@@ -77,6 +77,9 @@ export function formatFirebaseError(err) {
   if (code === 'auth/popup-closed-by-user' || msg.includes('auth/popup-closed-by-user')) {
     return 'Google Sign-In popup was closed before completing.';
   }
+  if (code === 'auth/popup-timeout') {
+    return err.message;
+  }
   if (code === 'auth/cancelled-popup-request' || msg.includes('auth/cancelled-popup-request')) {
     return 'Google Sign-In popup was cancelled.';
   }
@@ -172,7 +175,7 @@ export async function waitForAuthReady() {
   const user = auth?.currentUser || null;
   if (user) {
     try {
-      await syncUserProfileToFirestore(user);
+      void syncUserProfileToFirestore(user);
     } catch (e) {
       console.warn('[Firebase] Initial auth sync warning:', e);
     }
@@ -235,7 +238,7 @@ export async function firebaseLogin(email, password) {
   const cleanEmail = (email || '').toLowerCase().trim();
   const userCredential = await signInWithEmailAndPassword(auth, cleanEmail, password);
   if (userCredential.user) {
-    await syncUserProfileToFirestore(userCredential.user);
+    void syncUserProfileToFirestore(userCredential.user);
   }
   return userCredential.user;
 }
@@ -253,19 +256,36 @@ export async function firebaseRegister(name, email, password) {
     }
   }
   if (userCredential.user) {
-    await syncUserProfileToFirestore(userCredential.user, { displayName: name });
+    void syncUserProfileToFirestore(userCredential.user, { displayName: name });
   }
   return userCredential.user;
 }
+
+const POPUP_TIMEOUT_MS = 60000;
 
 export async function firebaseGoogleLogin() {
   const auth = getFirebaseAuth();
   if (!auth) throw new Error('Firebase Auth is not initialized');
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({ prompt: 'select_account' });
-  const result = await signInWithPopup(auth, provider);
+  // Google's sign-in page sets Cross-Origin-Opener-Policy, so Firebase cannot
+  // always tell when the popup was closed and signInWithPopup may never settle.
+  // Give up after a while so the button never spins forever.
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(
+      new Error('Google Sign-In timed out. If you closed the popup, try again; also check that popups are allowed for this site.'),
+      { code: 'auth/popup-timeout' }
+    )), POPUP_TIMEOUT_MS);
+  });
+  let result;
+  try {
+    result = await Promise.race([signInWithPopup(auth, provider), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
   if (result.user) {
-    await syncUserProfileToFirestore(result.user);
+    void syncUserProfileToFirestore(result.user);
   }
   return result.user;
 }
@@ -294,7 +314,7 @@ export function subscribeFirebaseAuthState(callback) {
   return onAuthStateChanged(auth, async (user) => {
     if (user) {
       try {
-        await syncUserProfileToFirestore(user);
+        void syncUserProfileToFirestore(user);
       } catch (e) {
         console.warn('[Firebase] Auth listener sync warning:', e);
       }
