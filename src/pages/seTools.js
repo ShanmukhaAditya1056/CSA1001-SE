@@ -17,7 +17,7 @@ const TOOLS = [
     phase: 'plan', name: 'Jira', mono: 'Ji', tint: '#2684FF',
     role: 'Sprint planning and issue tracking for the team backlog.',
     evidence: [],
-    links: [{ label: 'Open Jira board', url: '' }]
+    links: [{ label: 'Open Jira board', url: 'https://mohamedsaif68522.atlassian.net/jira/software/c/projects/FDA/boards/3/backlog?sprintCompleted=&atlOrigin=eyJpIjoiMDU0ZjIyYmFjYTJiNDY4MDgwNDlmYTczZDU4ZTZlZTAiLCJwIjoiaiJ9' }]
   },
   {
     phase: 'plan', name: 'Confluence', mono: 'Co', tint: '#1868DB',
