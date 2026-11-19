@@ -72,8 +72,37 @@ export async function checkUserRegistered(email) {
   return user ? { exists: true, user } : { exists: false };
 }
 
+// The sender already has a pending invite for this person. It may exist only in
+// this browser (sent while live sync was down), so the recipient never got it.
+// Push it to Firestore if it is missing instead of just refusing.
+async function redeliverPendingInvitation(projectId, email, check) {
+  const cleanEmail = normalizeEmail(email);
+  const nowMs = Date.now();
+  const pending = store.getUserInvitations(cleanEmail).find(inv =>
+    inv.projectId === projectId &&
+    String(inv.status || '').toLowerCase() === 'pending' &&
+    new Date(inv.expiresAt).getTime() > nowMs);
+  if (!pending) return check;
+
+  try {
+    const backend = await getBackend();
+    if (!backend.remote || !backend.ensureInvitation) return check;
+    const created = await backend.ensureInvitation({
+      ...pending,
+      invitedEmail: cleanEmail,
+      senderId: pending.senderId || pending.inviterId || store.currentUser?.id || ''
+    });
+    // Already in Firestore: it really was delivered, keep the duplicate message.
+    if (!created) return check;
+    return { data: pending };
+  } catch (err) {
+    return { error: `${INVITE_FAILED_MESSAGE} ${describeDirectoryError(err)}` };
+  }
+}
+
 export async function sendProjectInvitation(projectId, email, role) {
   const check = store.validateInvitation(projectId, email);
+  if (check.error === PENDING_INVITATION_MESSAGE) return redeliverPendingInvitation(projectId, email, check);
   if (check.error) return check;
   const { cleanEmail } = check.data;
 

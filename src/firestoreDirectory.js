@@ -15,6 +15,7 @@ import {
   query,
   where,
   or,
+  limit,
   onSnapshot,
   writeBatch,
   serverTimestamp,
@@ -255,7 +256,8 @@ export const firestoreBackend = {
     // 1. Try querying users collection by case-insensitive normalized email
     let sdkError = null;
     try {
-      const q = query(collection(db(), 'users'), where('email', '==', cleanEmail));
+      // limit(1) is required by the rules (no bulk listing of users).
+      const q = query(collection(db(), 'users'), where('email', '==', cleanEmail), limit(1));
       const snap = await getDocs(q);
       if (!snap.empty) {
         const d = snap.docs[0].data();
@@ -286,10 +288,12 @@ export const firestoreBackend = {
   async findPendingInvitation(projectId, email, senderId) {
     const cleanEmail = (email || '').toLowerCase().trim();
 
-    // 1. Try querying top-level invitations collection via SDK
+    // 1. Try querying top-level invitations collection via SDK. The sender
+    // filter is required: rules only allow listing your own sent/received invites.
     try {
       const q = query(
         collection(db(), 'invitations'),
+        where('senderId', '==', senderId),
         where('invitedEmail', '==', cleanEmail)
       );
       const snap = await getDocs(q);
@@ -390,6 +394,9 @@ export const firestoreBackend = {
             [uid]: memberData
           },
           memberIds: arrayUnion(uid),
+          // Rules check this invitation (in the same batch) before letting a
+          // non-member add themselves to the project.
+          joinedViaInvite: inviteId,
           updatedAt: serverTimestamp()
         }, { merge: true });
       }
@@ -397,8 +404,10 @@ export const firestoreBackend = {
       await batch.commit();
       return { success: true };
     } catch (err) {
-      console.warn('[firestoreBackend] SDK writeBatch accept error, falling back to REST:', err);
-      await this.updateInvitationStatus(inviteId, 'Accepted');
+      // Do not fall back to only flipping the status: that would show the
+      // invite as accepted while the user was never added to the project.
+      console.warn('[firestoreBackend] SDK writeBatch accept error:', err);
+      throw err;
     }
   },
 
@@ -416,6 +425,14 @@ export const firestoreBackend = {
       console.warn('[firestoreBackend] SDK decline error, falling back to REST:', err);
       await this.updateInvitationStatus(inviteId, 'Declined');
     }
+  },
+
+  // Make sure a locally pending invitation exists in Firestore. Returns true
+  // if it had to be created (it never reached the recipient before).
+  async ensureInvitation(invitation) {
+    if (await rest().get('invitations', invitation.id)) return false;
+    await this.createInvitation(invitation);
+    return true;
   },
 
   // Resend: refresh the shared record, or create it if it never reached

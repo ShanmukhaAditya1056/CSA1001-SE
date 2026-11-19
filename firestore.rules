@@ -1,7 +1,7 @@
 rules_version = '2';
 
 // DevTrack Firestore Security Rules
-// Enforces user profile isolation, project permissions, and real-time invitations
+// Enforces user profile isolation, project membership, and invitation integrity.
 // Deploy with: firebase deploy --only firestore:rules
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -14,17 +14,27 @@ service cloud.firestore {
       return request.auth.token.email.lower();
     }
 
-    function directoryEntry(email) {
-      return /databases/$(database)/documents/userDirectory/$(email);
+    // Fields changed by this write (works for create too: resource is null).
+    function changedKeys() {
+      return resource == null
+        ? request.resource.data.keys().toSet()
+        : request.resource.data.diff(resource.data).affectedKeys();
     }
 
-    // Users collection: Keyed by user.uid
-    // Users can only write to their own users/{userId} document where request.auth.uid == userId
+    // ---------------------------------------------------------------- users
+    // Keyed by auth uid. A profile can only claim its owner's own email, so
+    // email lookups cannot be pointed at someone else's account.
     match /users/{userId} {
-      allow read: if signedIn();
-      allow write: if signedIn() && request.auth.uid == userId;
+      allow get: if signedIn();
+      // Lookups by email only; limit(1) prevents dumping the whole collection.
+      allow list: if signedIn() && request.query.limit <= 1;
+      allow create, update: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.email == myEmail();
+      allow delete: if signedIn() && request.auth.uid == userId;
     }
 
+    // --------------------------------------------------------- userDirectory
     // One record per registered account, keyed by lowercase email. Lookups are
     // by exact email only; listing the directory is not allowed.
     match /userDirectory/{email} {
@@ -37,52 +47,92 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ------------------------------------------------------------- projects
     function isProjectMember() {
       return request.auth.uid in resource.data.get('memberIds', [])
         || resource.data.get('createdBy', null) == request.auth.uid;
     }
 
-    // Projects collection: readable only by the creator and members listed in memberIds.
+    // The write only adds the caller to members/memberIds and touches nothing else.
+    function onlyAddsSelf() {
+      let before = resource == null ? {} : resource.data;
+      let after = request.resource.data;
+      return changedKeys().hasOnly(['members', 'memberIds', 'updatedAt', 'joinedViaInvite'])
+        && after.get('members', {}).diff(before.get('members', {})).affectedKeys().hasOnly([request.auth.uid])
+        && after.get('memberIds', []).hasAll(before.get('memberIds', []))
+        && after.get('memberIds', []).toSet().difference(before.get('memberIds', []).toSet()).hasOnly([request.auth.uid]);
+    }
+
+    // Joining is only allowed together with accepting an invitation that was
+    // addressed to the caller for this project (same batch, hence getAfter).
+    function joiningViaInvite(projectId) {
+      let inv = getAfter(/databases/$(database)/documents/invitations/$(request.resource.data.joinedViaInvite)).data;
+      return inv.projectId == projectId
+        && inv.status.lower() == 'accepted'
+        // The member entry must carry the role from the invitation, not a self-chosen one.
+        && request.resource.data.members[request.auth.uid].role == inv.role
+        && (inv.get('invitedEmail', '') == myEmail() || inv.get('inviteeEmail', '') == myEmail());
+    }
+
+    // Readable only by the creator and members listed in memberIds.
     // Queries must filter on memberIds / createdBy or they are rejected.
     match /projects/{projectId} {
       allow read: if signedIn() && isProjectMember();
-      allow create: if signedIn();
-      allow update: if signedIn();
+      allow create: if signedIn() && (
+        (request.resource.data.get('createdBy', null) == request.auth.uid
+          && request.auth.uid in request.resource.data.get('memberIds', []))
+        || (onlyAddsSelf() && joiningViaInvite(projectId))
+      );
+      allow update: if signedIn() && (
+        isProjectMember()
+        || (onlyAddsSelf() && joiningViaInvite(projectId))
+      );
       allow delete: if false;
     }
 
-    // Top-level Invitations Collection:
-    // Authenticated users can create if request.resource.data.senderId == request.auth.uid
-    // Both sender and recipient can read and update.
+    // ---------------------------------------------------------- invitations
+    function isSender() {
+      return resource.data.get('senderId', '') == request.auth.uid
+        || resource.data.get('inviterId', '') == request.auth.uid;
+    }
+
+    function isInvitee() {
+      return resource.data.get('invitedEmail', '') == myEmail()
+        || resource.data.get('inviteeEmail', '') == myEmail();
+    }
+
+    function newStatus() {
+      return request.resource.data.get('status', '').lower();
+    }
+
     match /invitations/{invitationId} {
       // Senders and recipients can read invitations (get and query list)
-      allow get: if signedIn() && (resource == null
-        || resource.data.senderId == request.auth.uid
-        || resource.data.inviterId == request.auth.uid
-        || resource.data.invitedEmail == myEmail()
-        || resource.data.inviteeEmail == myEmail());
+      allow get: if signedIn() && (resource == null || isSender() || isInvitee());
 
-      allow list: if signedIn() && (
-        resource.data.senderId == request.auth.uid
-        || resource.data.inviterId == request.auth.uid
-        || resource.data.invitedEmail == myEmail()
-        || resource.data.inviteeEmail == myEmail()
-      );
+      allow list: if signedIn() && (isSender() || isInvitee());
 
-      // Authenticated users can create if senderId matches their auth UID
+      // New invitations must come from the caller and start out pending.
       allow create: if signedIn()
-        && (request.resource.data.senderId == request.auth.uid || request.resource.data.inviterId == request.auth.uid);
+        && (request.resource.data.get('senderId', '') == request.auth.uid
+          || request.resource.data.get('inviterId', '') == request.auth.uid)
+        && request.resource.data.get('status', '').lower() == 'pending';
 
-      // Both the sender and recipient can update
+      // Sender: resend (back to pending with new expiry) or revoke.
+      // Invitee: accept or decline a pending, unexpired invitation. Nobody can
+      // change who it is for, the project, or the role.
       allow update: if signedIn() && (
-        resource.data.senderId == request.auth.uid
-        || resource.data.inviterId == request.auth.uid
-        || resource.data.invitedEmail == myEmail()
-        || resource.data.inviteeEmail == myEmail()
+        (isSender()
+          && changedKeys().hasOnly(['status', 'respondedAt', 'expiresAt', 'expiresAtMs'])
+          && newStatus() in ['pending', 'revoked'])
+        || (isInvitee()
+          && changedKeys().hasOnly(['status', 'respondedAt'])
+          && resource.data.get('status', '').lower() == 'pending'
+          // Older records may lack expiresAtMs; only enforce it when present.
+          && resource.data.get('expiresAtMs', request.time.toMillis() + 1) > request.time.toMillis()
+          && newStatus() in ['accepted', 'declined'])
       );
 
       allow delete: if false;
     }
   }
 }
-
